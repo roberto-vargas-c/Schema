@@ -10,6 +10,7 @@
   display: flex;
   flex-direction: column;
   color: var(--graphite);
+  font-family: var(--lp-sans), ui-sans-serif, system-ui, sans-serif;
   background-color: var(--paper);
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
@@ -29,12 +30,13 @@
 }
 
 .mark {
-  font-family: var(--lp-serif), Georgia, serif;
-  font-size: 1.5rem;
-  letter-spacing: -0.01em;
+  font-family: var(--lp-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
   color: var(--graphite);
 }
-.mark span { color: var(--pencil); font-style: italic; }
+.mark span { color: var(--pencil); font-weight: 300; }
 
 .link {
   font-family: var(--lp-mono), ui-monospace, monospace;
@@ -70,13 +72,13 @@
 
 .title {
   margin-top: 1rem;
-  font-family: var(--lp-serif), Georgia, serif;
-  font-weight: 400;
-  font-size: clamp(3rem, 8vw, 5.5rem);
-  line-height: 0.95;
-  letter-spacing: -0.02em;
+  font-family: var(--lp-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
+  font-size: clamp(2.75rem, 7vw, 5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
-.title em { color: var(--pencil); }
+.title em { font-style: normal; font-weight: 300; color: var(--pencil); }
 
 .lede {
   margin-top: 1.5rem;
@@ -142,16 +144,17 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 1 1;
-  stroke-dashoffset: 1;
-  animation: trace 11s linear infinite;
+  stroke-dashoffset: 1; /* animated by SMIL in TraceSketch */
 }
 .ghost {
   stroke: var(--pencil);
   stroke-width: 0.9;
   opacity: 0.55;
   transform: translate(1.4px, -0.8px);
-  animation-delay: 0.12s;
 }
+.mask { fill: rgb(250, 249, 245); }
+.still { display: none; }
+.still .stroke { stroke-dasharray: none; stroke-dashoffset: 0; }
 .guides {
   fill: none;
   stroke: var(--faint);
@@ -162,13 +165,7 @@
 }
 .tip { fill: var(--graphite); animation: tip 11s linear infinite; }
 
-/* 0–62% the line is traced, then it rests, then it lifts off the paper and starts again. */
-@keyframes trace {
-  0% { stroke-dashoffset: 1; opacity: 1; }
-  62% { stroke-dashoffset: 0; opacity: 1; }
-  90% { stroke-dashoffset: 0; opacity: 1; }
-  98%, 100% { stroke-dashoffset: 0; opacity: 0; }
-}
+/* Strokes draw during the first 62% of the 11 s loop (SMIL), rest, then fade. Guides and tip follow along. */
 @keyframes guides {
   0%, 60% { opacity: 0; }
   70%, 88% { opacity: 1; }
@@ -199,6 +196,7 @@
 .scaleBar i:nth-child(odd) { background: var(--faint); }
 
 @media (prefers-reduced-motion: reduce) {
-  .stroke, .guides,   .ghost { opacity: 0.55; }
-  .tip { display: none; }
+  .animated, .tip { display: none; }
+  .still { display: inline; }
+  .guides { animation: none; opacity: 1; }
 }

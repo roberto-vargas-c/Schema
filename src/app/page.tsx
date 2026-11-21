@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { IBM_Plex_Mono, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { TraceSketch } from "@/components/landing/TraceSketch";
 import styles from "@/components/landing/landing.module.css";
 import { currentUser } from "@/lib/session";
 
-const serif = Instrument_Serif({ subsets: ["latin"], weight: "400", style: ["normal", "italic"], variable: "--lp-serif" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: "400", variable: "--lp-mono" });
+const sans = Geist({ subsets: ["latin"], weight: ["300", "400", "500"], variable: "--lp-sans" });
+const mono = Geist_Mono({ subsets: ["latin"], weight: "400", variable: "--lp-mono" });
 
 export const metadata: Metadata = {
   title: "Schematrace — trace the idea",
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default async function Home() {
   if (await currentUser()) redirect("/w");
   return (
-    <div className={`${styles.page} ${serif.variable} ${mono.variable}`}>
+    <div className={`${styles.page} ${sans.variable} ${mono.variable}`}>
       <header className={styles.bar}>
         <span className={styles.mark}>schema<span>trace</span></span>
         <Link className={styles.link} href="/login">Log in</Link>
