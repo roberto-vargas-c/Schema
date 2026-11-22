@@ -69,7 +69,7 @@ export function ArchToolbar({
         </div>
       )}
       {pluginsOpen && (
-        <div className="card absolute bottom-14 left-0 right-0 p-2 sm:left-auto sm:right-0 sm:w-80">
+        <div className="card absolute bottom-14 left-0 right-0 max-h-[60vh] overflow-y-auto p-2 sm:left-auto sm:right-0 sm:w-80">
           <div className="mb-1 flex items-center justify-between px-1">
             <h3 className="text-sm font-semibold">Plug-ins</h3>
             <button className="btn-ghost p-1" title="Close" onClick={() => setPluginsOpen(false)}><X size={14} /></button>

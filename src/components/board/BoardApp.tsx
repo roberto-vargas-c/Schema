@@ -13,6 +13,12 @@ import { ArchToolbar } from "./ArchToolbar";
 import type { PluginId } from "./plugins/registry";
 import { TracePanel } from "./plugins/TracePanel";
 import { SitePanel } from "./plugins/SitePanel";
+import { BubblePanel } from "./plugins/BubblePanel";
+import { RoomsPanel } from "./plugins/RoomsPanel";
+import { MaterialsPanel } from "./plugins/MaterialsPanel";
+import { CritPanel } from "./plugins/CritPanel";
+import { PrecedentsPanel } from "./plugins/PrecedentsPanel";
+import type { PluginContext } from "./plugins/shared";
 import { ScaleDialog } from "./ScaleDialog";
 import { createBoard, deleteBoard, duplicateBoard, moveBoardToFolder, renameBoard, toggleStar } from "@/app/actions/workspace";
 import { useBoardPrefs } from "./boardPrefs";
@@ -652,6 +658,12 @@ export function BoardApp(p: BoardAppProps) {
   const [plugin, setPlugin] = useState<PluginId | null>(null);
   const openPlugin = (id: PluginId) => { setPlugin(id); setAiOpen(false); setHistoryOpen(false); setCommentsOpen(false); setVoteOpen(false); };
   useEffect(() => { if (aiOpen || historyOpen || commentsOpen || voteOpen) setPlugin(null); }, [aiOpen, historyOpen, commentsOpen, voteOpen]);
+  const pluginCtx: PluginContext | null = plugin ? {
+    elements, selected, api, select: setSelection, toast: setToast, upload: uploadBlob, unit, boardTitle: title,
+    boardScale: session.boardScale ?? null, user: p.user ? { id: p.user.id, name: p.user.name } : null,
+    center: () => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 },
+    focus: (els) => { const b = unionRect(els.map(elBounds)); if (b && canvasRef.current) flyTo(canvasRef.current.cameraFor(b, 120)); },
+  } : null;
   const [moreOpen, setMoreOpen] = useState(false);
   const isPhone = useIsPhone();
   const dark = useDarkMode();
@@ -1284,6 +1296,13 @@ export function BoardApp(p: BoardAppProps) {
       {plugin === "trace" && canEdit && !presenting && (
         <TracePanel selected={selected} api={api} center={() => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 }}
           onSelect={setSelection} toast={setToast} onClose={() => setPlugin(null)} />
+      )}
+      {plugin && pluginCtx && canEdit && !presenting && (
+        plugin === "bubbles" ? <BubblePanel ctx={pluginCtx} onClose={() => setPlugin(null)} />
+          : plugin === "rooms" ? <RoomsPanel ctx={pluginCtx} onClose={() => setPlugin(null)} />
+            : plugin === "materials" ? <MaterialsPanel ctx={pluginCtx} onClose={() => setPlugin(null)} />
+              : plugin === "crit" ? <CritPanel ctx={pluginCtx} onClose={() => setPlugin(null)} onPresent={() => { setPlugin(null); startPresenting(false); }} />
+                : plugin === "precedents" ? <PrecedentsPanel ctx={pluginCtx} onClose={() => setPlugin(null)} /> : null
       )}
       {plugin === "site" && canEdit && !presenting && (
         <SitePanel upload={uploadBlob} center={() => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 }} onClose={() => setPlugin(null)}
