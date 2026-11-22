@@ -90,6 +90,8 @@ export interface ImageElement extends BaseElement {
   animated?: boolean;
   flipX?: boolean;
   flipY?: boolean;
+  /** Tracing paper overlay: the picture's dark lines drawn in this color on a see-through ground. */
+  tint?: string;
   /** Visible part of the picture, as fractions (0–1) of its natural size. */
   crop?: { x: number; y: number; width: number; height: number };
 }

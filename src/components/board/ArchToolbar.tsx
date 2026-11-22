@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { FileUp, Ruler, Square as AreaIcon, BrickWall, Cloud, Highlighter, Shapes, Scale, X } from "lucide-react";
+import { FileUp, Ruler, Square as AreaIcon, BrickWall, Cloud, Highlighter, Shapes, Scale, X, Puzzle } from "lucide-react";
+import { PLUGINS, type PluginId } from "./plugins/registry";
 import { SYMBOLS, UNITS, type SymbolDef, type Unit } from "@/lib/board/arch";
 import type { Tool } from "./Canvas";
 
@@ -25,15 +26,18 @@ const ARCH_TOOLS: { id: Tool; label: string; key: string; icon: typeof Ruler }[]
 ];
 
 export function ArchToolbar({
-  tool, setTool, onImportPlan, importing, placingSymbol, setPlacingSymbol, unit, setUnit, scaleText, mobileOpen,
+  tool, setTool, onImportPlan, importing, placingSymbol, setPlacingSymbol, unit, setUnit, scaleText, mobileOpen, plugin, onPlugin,
 }: {
   tool: Tool; setTool: (t: Tool) => void; onImportPlan: () => void; importing: string | null;
   placingSymbol: string | null; setPlacingSymbol: (id: string | null) => void;
   unit: Unit; setUnit: (u: Unit) => void; scaleText: string;
   /** On phones the plan tools sit behind a toggle in the main toolbar. */
   mobileOpen?: boolean;
+  /** The open plug-in, and opening one from the Plug-ins menu. */
+  plugin: PluginId | null; onPlugin: (id: PluginId) => void;
 }) {
   const [symbolsOpen, setSymbolsOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const btn = (active: boolean) =>
     `flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${active ? "bg-rose-700 text-white" : "text-slate-700 hover:bg-slate-100"}`;
   const groups = Array.from(new Set(SYMBOLS.map((s) => s.group)));
@@ -64,6 +68,28 @@ export function ArchToolbar({
           ))}
         </div>
       )}
+      {pluginsOpen && (
+        <div className="card absolute bottom-14 left-0 right-0 p-2 sm:left-auto sm:right-0 sm:w-80">
+          <div className="mb-1 flex items-center justify-between px-1">
+            <h3 className="text-sm font-semibold">Plug-ins</h3>
+            <button className="btn-ghost p-1" title="Close" onClick={() => setPluginsOpen(false)}><X size={14} /></button>
+          </div>
+          <ul>
+            {PLUGINS.map((pl) => (
+              <li key={pl.id}>
+                <button className={`flex w-full items-start gap-3 rounded-lg p-2 text-left hover:bg-slate-100 ${plugin === pl.id ? "bg-rose-50" : ""}`}
+                  onClick={() => { onPlugin(pl.id); setPluginsOpen(false); }}>
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-700"><pl.icon size={17} /></span>
+                  <span>
+                    <span className="block text-sm font-medium text-slate-800">{pl.name}</span>
+                    <span className="block text-xs text-slate-500">{pl.description}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg [scrollbar-width:none] sm:overflow-visible">
         <button className="btn-ghost h-9 shrink-0 px-2.5 text-sm" title="Import a PDF or image plan" onClick={onImportPlan} disabled={!!importing}>
           <FileUp size={16} /> <span className="hidden sm:inline">{importing ?? "Import plan"}</span>
@@ -74,8 +100,12 @@ export function ArchToolbar({
             <t.icon size={17} />
           </button>
         ))}
-        <button className={btn(symbolsOpen || tool === "symbol")} title="Plan symbols: doors, windows, furniture…" onClick={() => setSymbolsOpen((o) => !o)}>
+        <button className={btn(symbolsOpen || tool === "symbol")} title="Plan symbols: doors, windows, furniture…" onClick={() => { setSymbolsOpen((o) => !o); setPluginsOpen(false); }}>
           <Shapes size={17} />
+        </button>
+        <button className={`h-9 shrink-0 rounded-lg px-2.5 text-sm transition ${pluginsOpen || plugin ? "bg-rose-700 text-white" : "text-slate-700 hover:bg-slate-100"} flex items-center gap-1.5`}
+          title="Plug-ins: tracing paper, site analysis…" aria-expanded={pluginsOpen} onClick={() => { setPluginsOpen((o) => !o); setSymbolsOpen(false); }}>
+          <Puzzle size={16} /> <span className="hidden sm:inline">Plug-ins</span>
         </button>
         <div className="mx-0.5 h-6 w-px bg-slate-200" />
         <span className="hidden max-w-[16ch] truncate px-1 text-xs text-slate-500 md:inline" title={scaleText}>{scaleText}</span>

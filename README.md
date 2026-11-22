@@ -55,6 +55,11 @@ A collaborative online whiteboard for architecture teams, with workspaces and te
 - Redlining: revision clouds, highlighter, red line and text colors
 - Plan symbol library sized to real dimensions: doors, windows, stairs, columns, bathroom and kitchen fixtures, furniture, trees, cars, north arrow, section and level markers
 
+**Plug-ins** (the Plug-ins button in the bottom toolbar; each opens its own panel)
+- Tracing paper: select two or more plans and overlay them on the lowest one, at the same real scale when both are scaled. Each layer is drawn as lines in its own color on see-through paper, with an opacity slider, a hide button and a color picker per layer; *Side by side* lays them out again. *Add a tracing sheet* puts a sheet of yellow trace over the selection to sketch on
+- Site analysis: find an address (OpenStreetMap's Nominatim) or type `lat, lon`, pick how wide the map is (250 m to 2 km), and one click adds a frame with a north-up site map at its real scale (measure on it straight away), a north arrow, the sun path diagram for the site's latitude (solstices and equinoxes, solar hours) and a table of daylight, noon sun height and sunrise / sunset bearings. The map is stitched in the browser from at most 25 OpenStreetMap tiles and credited on the board
+- A plug-in is a panel in `src/components/board/plugins/`, listed in `registry.ts`
+
 **Facilitation & presenting**
 - Shared timer with pause, +1 minute and an alarm
 - Voting sessions: set votes per person, optionally hide results until the end, ranked results
