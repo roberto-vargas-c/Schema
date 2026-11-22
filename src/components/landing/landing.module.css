@@ -144,17 +144,16 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 1 1;
-  stroke-dashoffset: 1; /* animated by SMIL in TraceSketch */
+  stroke-dashoffset: 1;
+  animation: trace 11s linear infinite;
 }
 .ghost {
   stroke: var(--pencil);
   stroke-width: 0.9;
   opacity: 0.55;
   transform: translate(1.4px, -0.8px);
+  animation-delay: 0.12s;
 }
-.mask { fill: rgb(250, 249, 245); }
-.still { display: none; }
-.still .stroke { stroke-dasharray: none; stroke-dashoffset: 0; }
 .guides {
   fill: none;
   stroke: var(--faint);
@@ -164,8 +163,22 @@
   animation: guides 11s linear infinite;
 }
 .tip { fill: var(--graphite); animation: tip 11s linear infinite; }
+.figure {
+  fill: none;
+  stroke: var(--pencil);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  opacity: 0;
+  animation: guides 11s linear infinite;
+}
 
-/* Strokes draw during the first 62% of the 11 s loop (SMIL), rest, then fade. Guides and tip follow along. */
+/* 0–62% the line is traced, then it rests, then it lifts off the paper and starts again. */
+@keyframes trace {
+  0% { stroke-dashoffset: 1; opacity: 1; }
+  62% { stroke-dashoffset: 0; opacity: 1; }
+  90% { stroke-dashoffset: 0; opacity: 1; }
+  98%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
 @keyframes guides {
   0%, 60% { opacity: 0; }
   70%, 88% { opacity: 1; }
@@ -196,7 +209,7 @@
 .scaleBar i:nth-child(odd) { background: var(--faint); }
 
 @media (prefers-reduced-motion: reduce) {
-  .animated, .tip { display: none; }
-  .still { display: inline; }
-  .guides { animation: none; opacity: 1; }
+  .stroke, .guides, .figure { animation: none; stroke-dashoffset: 0; opacity: 1; }
+  .ghost { opacity: 0.55; }
+  .tip { display: none; }
 }
