@@ -1,42 +1,55 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Logo } from "@/components/Logo";
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from "@/lib/brand";
+import { Geist, Geist_Mono } from "next/font/google";
+import { TraceSketch } from "@/components/landing/TraceSketch";
+import styles from "@/components/landing/landing.module.css";
 import { currentUser } from "@/lib/session";
 
-const FEATURES = [
-  ["Endless canvas", "Zoom, pan and arrange sticky notes, shapes, text, drawings, images and frames."],
-  ["Live together", "See teammates' cursors and edits as they happen."],
-  ["Workspaces & teams", "Organize boards by workspace, invite people, and control access with roles."],
-  ["Comment & share", "Pin comments on the canvas and share boards with a view or edit link."],
-];
+const sans = Geist({ subsets: ["latin"], weight: ["300", "400", "500"], variable: "--lp-sans" });
+const mono = Geist_Mono({ subsets: ["latin"], weight: "400", variable: "--lp-mono" });
+
+export const metadata: Metadata = {
+  title: "Schematrace — trace the idea",
+  description: "A quiet canvas for sketches, schemas and the first stroke of a building.",
+};
 
 export default async function Home() {
   if (await currentUser()) redirect("/w");
   return (
-    <main className="min-h-full bg-gradient-to-br from-brand-50 via-white to-amber-50">
-      <header className="mx-auto flex max-w-6xl items-center justify-between p-6">
-        <Logo />
-        <nav className="flex gap-2">
-          <Link className="btn-ghost" href="/login">Log in</Link>
-          <Link className="btn-primary" href="/signup">Get started</Link>
-        </nav>
+    <div className={`${styles.page} ${sans.variable} ${mono.variable}`}>
+      <header className={styles.bar}>
+        <span className={styles.mark}>schema<span>trace</span></span>
+        <Link className={styles.link} href="/login">Log in</Link>
       </header>
-      <section className="mx-auto max-w-4xl px-6 pb-16 pt-20 text-center">
-        <h1 className="text-5xl font-bold tracking-tight">{PRODUCT_TAGLINE}</h1>
-        <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
-          {PRODUCT_NAME} is a collaborative whiteboard for brainstorming, planning and mapping ideas with your team.
-        </p>
-        <Link className="btn-primary mt-8 px-6 py-3 text-base" href="/signup">Create a free board</Link>
-      </section>
-      <section className="mx-auto grid max-w-5xl gap-4 px-6 pb-24 sm:grid-cols-2">
-        {FEATURES.map(([t, d]) => (
-          <div key={t} className="card p-6">
-            <h3 className="font-semibold">{t}</h3>
-            <p className="mt-1 text-sm text-slate-600">{d}</p>
+
+      <main className={styles.main}>
+        <section>
+          <p className={styles.eyebrow}>Sheet 01 · Concept</p>
+          <h1 className={styles.title}>Trace<br /><em>the idea.</em></h1>
+          <p className={styles.lede}>
+            A quiet canvas for sketches, schemas and the first stroke of a building. Lay one idea over another, together.
+          </p>
+          <div className={styles.actions}>
+            <Link className={styles.cta} href="/signup">Start tracing <span aria-hidden>→</span></Link>
+            <Link className={styles.link} href="/login">I have an account</Link>
           </div>
-        ))}
-      </section>
-    </main>
+        </section>
+
+        <figure className={styles.sheet}>
+          <span className={styles.tape} aria-hidden />
+          <TraceSketch />
+          <figcaption className={styles.sheetMeta}>Line · n.t.s.</figcaption>
+        </figure>
+      </main>
+
+      <footer className={styles.foot}>
+        <span>schematrace.app</span>
+        <span className={styles.scale} aria-hidden>
+          <span className={styles.scaleBar}><i /><i /><i /><i /></span>
+          1:100
+        </span>
+      </footer>
+    </div>
   );
 }
