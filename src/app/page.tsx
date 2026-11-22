@@ -39,7 +39,7 @@ export default async function Home() {
         <figure className={styles.sheet}>
           <span className={styles.tape} aria-hidden />
           <TraceSketch />
-          <figcaption className={styles.sheetMeta}>Elevation · n.t.s.</figcaption>
+          <figcaption className={styles.sheetMeta}>Sketch · n.t.s.</figcaption>
         </figure>
       </main>
 
