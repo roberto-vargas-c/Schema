@@ -1,11 +1,15 @@
-/* Schematrace landing: a sheet of tracing paper laid over a gridded drawing. Light only, on purpose. */
+/* Schematrace landing: a sheet of tracing paper laid over a gridded drawing. Light only, on purpose.
+   Colors follow the app's palette (globals.css): page grey, ink, slate greys and the brand teal. */
 
 .page {
-  --paper: #f3f0e8;
-  --grid: rgba(60, 92, 120, 0.09);
-  --graphite: #2b2a28;
-  --pencil: #6d6a63;
-  --faint: #a8a398;
+  --paper: #f6f7f9;              /* app background */
+  --grid: rgba(100, 116, 139, 0.1); /* slate-500, faint */
+  --graphite: #13212b;           /* --color-ink */
+  --pencil: #64748b;             /* slate-500 */
+  --faint: #94a3b8;              /* slate-400 */
+  --brand: #0f8573;              /* brand-600 */
+  --brand-dark: #0d6b5e;         /* brand-700 */
+  --brand-light: #14a38b;        /* brand-500 */
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -36,7 +40,7 @@
   letter-spacing: -0.03em;
   color: var(--graphite);
 }
-.mark span { color: var(--pencil); font-weight: 300; }
+.mark span { color: var(--brand); font-weight: 300; }
 
 .link {
   font-family: var(--lp-mono), ui-monospace, monospace;
@@ -78,14 +82,14 @@
   line-height: 1;
   letter-spacing: -0.045em;
 }
-.title em { font-style: normal; font-weight: 300; color: var(--pencil); }
+.title em { font-style: normal; font-weight: 300; color: var(--brand); }
 
 .lede {
   margin-top: 1.5rem;
   max-width: 26rem;
   font-size: 1.05rem;
   line-height: 1.6;
-  color: #4a4842;
+  color: #475569; /* slate-600 */
 }
 
 .actions { margin-top: 2.25rem; display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; }
@@ -95,23 +99,23 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.85rem 1.4rem;
-  background: var(--graphite);
-  color: var(--paper);
+  background: var(--brand);
+  color: #fff;
   font-size: 0.95rem;
   text-decoration: none;
   border-radius: 2px;
   transition: background 0.2s;
 }
-.cta:hover { background: #000; }
-.cta:focus-visible, .link:focus-visible { outline: 2px solid var(--graphite); outline-offset: 3px; }
+.cta:hover { background: var(--brand-dark); }
+.cta:focus-visible, .link:focus-visible { outline: 2px solid var(--brand-light); outline-offset: 3px; }
 
 /* The tracing sheet: translucent, so the grid underneath goes soft. */
 .sheet {
   position: relative;
-  background: rgba(252, 251, 247, 0.72);
+  background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(1.5px);
   -webkit-backdrop-filter: blur(1.5px);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 12px 40px -18px rgba(40, 36, 28, 0.25);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 12px 40px -18px rgba(19, 33, 43, 0.25);
   transform: rotate(-0.8deg);
 }
 .tape {
@@ -121,7 +125,7 @@
   width: 92px;
   height: 24px;
   transform: translateX(-50%) rotate(1.5deg);
-  background: rgba(230, 222, 200, 0.75);
+  background: rgba(245, 158, 11, 0.28); /* the logo's amber */
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 .sheetMeta {
@@ -148,13 +152,13 @@
   animation: trace 11s linear infinite;
 }
 .ghost {
-  stroke: var(--pencil);
+  stroke: var(--brand-light);
   stroke-width: 0.9;
   opacity: 0.55;
   transform: translate(1.4px, -0.8px);
   animation-delay: 0.12s;
 }
-.tip { fill: var(--graphite); animation: tip 11s linear infinite; }
+.tip { fill: var(--brand); animation: tip 11s linear infinite; }
 
 /* 0–62% the line is traced, then it rests, then it lifts off the paper and starts again. */
 @keyframes trace {
