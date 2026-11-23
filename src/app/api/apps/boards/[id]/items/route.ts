@@ -16,7 +16,8 @@ const PER_ROW = 3, ROW_H = 900, GAP = 60, PAD = 80, HEAD = 60;
 /**
  * For a connected app: puts pictures on a board, in a frame of their own next to what is there (Keystone's "Send to Schema").
  * A form with "title" (the frame's name), one or more "file" (PNG, JPEG or WebP, each with its name as caption) and,
- * optionally, "link" (a page the frame links to, e.g. the live 3D model) with "linkTitle".
+ * optionally, "link" (a page the frame links to, e.g. the live 3D model) with "linkTitle", and "project" / "projectName" (the
+ * Keystone project the sheets come from, kept on them so that markup on a sheet can be sent back to it).
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const c = await appCaller(req);
@@ -31,6 +32,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!files.length) return NextResponse.json({ error: "No pictures" }, { status: 400 });
   if (files.length > MAX_FILES) return NextResponse.json({ error: `At most ${MAX_FILES} pictures at once` }, { status: 413 });
   const title = String(form.get("title") ?? "").trim().slice(0, 120) || c.app;
+  const project = String(form.get("project") ?? "");
+  const keystone = /^[a-z0-9][a-z0-9-]{0,63}$/.test(project)
+    ? { project, ...(String(form.get("projectName") ?? "").trim() && { projectName: String(form.get("projectName")).trim().slice(0, 120) }) }
+    : undefined;
 
   // read and check every picture before storing any
   const pics: { bytes: Uint8Array; type: string; w: number; h: number; name: string }[] = [];
@@ -58,6 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const el = makeElement("image", x, y, { width: w, height: ROW_H, fill: "transparent", stroke: "transparent" }) as ImageElement;
     el.src = `/api/assets/${aid}`;
     if (p.name) el.plan = { name: p.name };
+    if (keystone) el.meta = { keystone: { ...keystone, ...(p.name && { sheet: p.name }) } };
     els.push(el);
     x += w + GAP; rowW += w + GAP; width = Math.max(width, rowW - GAP);
   }
@@ -68,7 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     els.push(e);
     height += GAP + e.height;
   }
-  const frame = makeElement("frame", 0, 0, { width: width + 2 * PAD, height: height + 2 * PAD + HEAD, text: title });
+  const frame = makeElement("frame", 0, 0, { width: width + 2 * PAD, height: height + 2 * PAD + HEAD, text: title, ...(keystone && { meta: { keystone } }) });
   const area = await dropOnBoard(id, [frame, ...els]);
   await audit(board.workspaceId, c.user, "board.items_added", { type: "board", id: board.id, name: board.title }, { via: c.app, pictures: pics.length });
   return NextResponse.json({ url: `${APP_URL()}/board/${id}`, added: pics.length, area });

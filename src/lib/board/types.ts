@@ -79,6 +79,10 @@ export interface PluginMeta {
   stamp?: { verdict: Verdict; of: string };
   /** Precedent clipper: a clipped reference picture. */
   precedent?: Precedent;
+  /** A sheet (or the frame of sheets) sent from a Keystone project, so markup on it can go back there. */
+  keystone?: { project: string; projectName?: string; sheet?: string };
+  /** When this sheet's markup was last sent to Keystone (ISO time). */
+  sentToKeystone?: string;
 }
 
 export interface ConnectorElement extends BaseElement {

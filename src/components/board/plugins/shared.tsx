@@ -24,6 +24,9 @@ export type PluginContext = {
   unit: Unit;
   user: { id: string; name: string } | null;
   boardTitle: string;
+  boardId: string;
+  /** A picture of a part of the board, as the board shows it; null when nothing could be drawn. */
+  exportImage: (rect: { x: number; y: number; width: number; height: number }, pixelsPerUnit: number, type?: "image/png" | "image/jpeg") => Promise<Blob | null>;
 };
 
 export function PluginPanel({ icon: Icon, title, onClose, children }: { icon: LucideIcon; title: string; onClose: () => void; children: ReactNode }) {
