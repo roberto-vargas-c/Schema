@@ -10,6 +10,15 @@ import { KeystonePicker } from "./KeystonePicker";
 import { PT_IN_METERS, formatLength, metersPerPxOfPlan, type Unit } from "@/lib/board/arch";
 import { unionRect, bounds as elBounds } from "./geometry";
 import { ArchToolbar } from "./ArchToolbar";
+import type { PluginId } from "./plugins/registry";
+import { TracePanel } from "./plugins/TracePanel";
+import { SitePanel } from "./plugins/SitePanel";
+import { BubblePanel } from "./plugins/BubblePanel";
+import { RoomsPanel } from "./plugins/RoomsPanel";
+import { MaterialsPanel } from "./plugins/MaterialsPanel";
+import { CritPanel } from "./plugins/CritPanel";
+import { PrecedentsPanel } from "./plugins/PrecedentsPanel";
+import type { PluginContext } from "./plugins/shared";
 import { ScaleDialog } from "./ScaleDialog";
 import { createBoard, deleteBoard, duplicateBoard, moveBoardToFolder, renameBoard, toggleStar } from "@/app/actions/workspace";
 import { useBoardPrefs } from "./boardPrefs";
@@ -645,6 +654,16 @@ export function BoardApp(p: BoardAppProps) {
   // ── Stickers, emojis and GIFs ──
   const [stickersOpen, setStickersOpen] = useState(false);
   const [archOpen, setArchOpen] = useState(false);
+  // Plug-ins share the right-hand panel spot with AI assist, comments, voting and history: opening one closes the others.
+  const [plugin, setPlugin] = useState<PluginId | null>(null);
+  const openPlugin = (id: PluginId) => { setPlugin(id); setAiOpen(false); setHistoryOpen(false); setCommentsOpen(false); setVoteOpen(false); };
+  useEffect(() => { if (aiOpen || historyOpen || commentsOpen || voteOpen) setPlugin(null); }, [aiOpen, historyOpen, commentsOpen, voteOpen]);
+  const pluginCtx: PluginContext | null = plugin ? {
+    elements, selected, api, select: setSelection, toast: setToast, upload: uploadBlob, unit, boardTitle: title,
+    boardScale: session.boardScale ?? null, user: p.user ? { id: p.user.id, name: p.user.name } : null,
+    center: () => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 },
+    focus: (els) => { const b = unionRect(els.map(elBounds)); if (b && canvasRef.current) flyTo(canvasRef.current.cameraFor(b, 120)); },
+  } : null;
   const [moreOpen, setMoreOpen] = useState(false);
   const isPhone = useIsPhone();
   const dark = useDarkMode();
@@ -1188,7 +1207,8 @@ export function BoardApp(p: BoardAppProps) {
       {canEdit && (
         <ArchToolbar tool={tool} setTool={setTool} onImportPlan={() => planInputRef.current?.click()} importing={importing}
           placingSymbol={placingSymbol} setPlacingSymbol={setPlacingSymbol}
-          unit={unit} setUnit={(u) => api.setSession("unit", u)} scaleText={scaleText} mobileOpen={archOpen} />
+          unit={unit} setUnit={(u) => api.setSession("unit", u)} scaleText={scaleText} mobileOpen={archOpen}
+          plugin={plugin} onPlugin={openPlugin} />
       )}
       <input ref={planInputRef} type="file" accept="application/pdf,.pdf,image/png,image/jpeg,image/webp" hidden
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importPlan(f); e.target.value = ""; }} />
@@ -1272,6 +1292,26 @@ export function BoardApp(p: BoardAppProps) {
       {aiOpen && canEdit && !presenting && (
         <AiPanel enabled={!!p.ai} boardId={p.boardId} q={q} selected={selected} all={elements}
           onCluster={aiCluster} onSummary={aiSummary} onIdeas={aiIdeas} onDiagram={aiDiagram} onClose={() => setAiOpen(false)} />
+      )}
+      {plugin === "trace" && canEdit && !presenting && (
+        <TracePanel selected={selected} api={api} center={() => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 }}
+          onSelect={setSelection} toast={setToast} onClose={() => setPlugin(null)} />
+      )}
+      {plugin && pluginCtx && canEdit && !presenting && (
+        plugin === "bubbles" ? <BubblePanel ctx={pluginCtx} onClose={() => setPlugin(null)} />
+          : plugin === "rooms" ? <RoomsPanel ctx={pluginCtx} onClose={() => setPlugin(null)} />
+            : plugin === "materials" ? <MaterialsPanel ctx={pluginCtx} onClose={() => setPlugin(null)} />
+              : plugin === "crit" ? <CritPanel ctx={pluginCtx} onClose={() => setPlugin(null)} onPresent={() => { setPlugin(null); startPresenting(false); }} />
+                : plugin === "precedents" ? <PrecedentsPanel ctx={pluginCtx} onClose={() => setPlugin(null)} /> : null
+      )}
+      {plugin === "site" && canEdit && !presenting && (
+        <SitePanel upload={uploadBlob} center={() => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 }} onClose={() => setPlugin(null)}
+          onAdd={(els, focus) => {
+            api.add(els);
+            setSelection([focus.id]);
+            if (canvasRef.current) flyTo(canvasRef.current.cameraFor(elBounds(focus), 80));
+            setToast("Site analysis added. The map has its real scale, so you can measure on it.");
+          }} />
       )}
       {historyOpen && canEditBoard && !presenting && (
         <VersionPanel boardId={p.boardId} q={q} api={rawApi} previewing={preview?.id ?? null}

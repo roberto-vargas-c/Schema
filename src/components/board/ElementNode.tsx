@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Konva from "konva";
 import { loadGif, type GifFrames } from "./gif";
 import { isKeystoneEmbed } from "./embeds";
@@ -50,16 +50,46 @@ function useGifFrame(src: string, enabled: boolean, nodeRef: React.RefObject<Kon
   return gif ? gif.frames[frame] : null;
 }
 
+/**
+ * Tracing paper: a filter that keeps a drawing's lines and drops its paper. Each pixel takes the tint color, and the darker it
+ * was, the more opaque it stays, so white paper turns see-through and two tinted plans can be laid over each other.
+ */
+function lineTintFilter(hex: string) {
+  const v = parseInt(hex.replace("#", "").padEnd(6, "0").slice(0, 6), 16);
+  const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+  return (data: ImageData) => {
+    const d = data.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const ink = 1 - (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+      d[i] = r; d[i + 1] = g; d[i + 2] = b;
+      d[i + 3] = Math.round(d[i + 3] * Math.min(1, Math.max(0, (ink - 0.06) * 1.6)));
+    }
+  };
+}
+
 function ImageShape({ el }: { el: ImageElement }) {
   const img = useImage(el.src);
   const ref = useRef<Konva.Image>(null);
   const frame = useGifFrame(el.src, !!el.animated, ref);
+  const tint = el.animated ? undefined : el.tint;
+  const filters = useMemo(() => (tint ? [lineTintFilter(tint)] : []), [tint]);
+  const c = el.crop;
+  // Filters work on a cached bitmap: cache it at the picture's own resolution so the lines stay sharp when zoomed in.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || !img) return;
+    if (!tint) { node.clearCache(); node.getLayer()?.batchDraw(); return; }
+    const natural = img.width * (c?.width ?? 1);
+    try {
+      node.cache({ pixelRatio: Math.min(4, Math.max(1, natural / Math.max(1, el.width))) });
+    } catch { node.clearCache(); } // a picture from another site can't be read back
+    node.getLayer()?.batchDraw();
+  }, [img, tint, el.width, el.height, c?.x, c?.y, c?.width, c?.height, el.flipX, el.flipY]);
   if (!img) return <Rect width={el.width} height={el.height} fill="#f1f5f9" stroke="#cbd5e1" dash={[6, 6]} />;
   const source = frame ?? img;
-  const c = el.crop;
   const crop = c ? { x: c.x * source.width, y: c.y * source.height, width: c.width * source.width, height: c.height * source.height } : undefined;
   return (
-    <KImage ref={ref} image={source} crop={crop} width={el.width} height={el.height}
+    <KImage ref={ref} image={source} crop={crop} width={el.width} height={el.height} filters={filters}
       scaleX={el.flipX ? -1 : 1} scaleY={el.flipY ? -1 : 1} x={el.flipX ? el.width : 0} y={el.flipY ? el.height : 0} />
   );
 }

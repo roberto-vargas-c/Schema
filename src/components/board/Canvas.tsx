@@ -1100,8 +1100,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
               const sel = selection.includes(c.id);
               return (
                 <Arrow key={c.id} id={c.id} name="connector" points={pts} bezier={bezier} lineJoin="round"
-                  dash={c.pattern === "dashed" ? [10, 7] : c.pattern === "dotted" ? [0.1, 6] : undefined} stroke={sel ? "#0f8573" : c.stroke} fill={sel ? "#0f8573" : c.stroke}
-                  strokeWidth={2} hitStrokeWidth={16} pointerLength={12} pointerWidth={12}
+                  dash={c.pattern === "dashed" ? [10 * (c.weight ?? 2) / 2, 7 * (c.weight ?? 2) / 2] : c.pattern === "dotted" ? [0.1, 6 * (c.weight ?? 2) / 2] : undefined} stroke={sel ? "#0f8573" : c.stroke} fill={sel ? "#0f8573" : c.stroke}
+                  strokeWidth={c.weight ?? 2} hitStrokeWidth={Math.max(16, (c.weight ?? 2) + 8)} pointerLength={12} pointerWidth={12}
                   pointerAtBeginning={c.arrowStart} pointerAtEnding={c.arrowEnd} lineCap="round" />
               );
             }

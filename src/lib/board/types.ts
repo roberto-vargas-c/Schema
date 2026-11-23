@@ -52,6 +52,33 @@ export interface BaseElement {
   groupId?: string;
   /** Set on elements created while private mode is on; others see them hidden until it ends. */
   privateOwner?: string;
+  /** What a plug-in knows about the element (a room bubble, a material swatch, a review stamp…). */
+  meta?: PluginMeta;
+}
+
+/** A room of the brief: its name, how many, and the area of one, in m². */
+export type RoomBrief = { name: string; area: number; count?: number; group?: string };
+export type Material = { code: string; name: string; finish?: string; supplier?: string; cost?: number; color: string };
+export type Verdict = "approved" | "revise" | "question";
+export type Precedent = { title: string; architect?: string; year?: string; source?: string; credit?: string; tags: string[] };
+
+export interface PluginMeta {
+  /** Bubble diagram: a room bubble. */
+  room?: RoomBrief;
+  /** Bubble diagram: on a connector, how two rooms relate (3 must be next to, 1 nice to be near, -1 keep apart). */
+  adjacency?: 3 | 1 | -1;
+  /** Room tags: the measured area or closed wall this tag names, and the room's name. */
+  tagOf?: string;
+  roomName?: string;
+  /** A table a plug-in keeps up to date. */
+  table?: "rooms" | "finishes" | "decisions";
+  /** Material boards: a swatch, or a tag that places a material on a plan. */
+  material?: Material;
+  materialTag?: string;
+  /** Crit wall: a review stamp on a sheet. */
+  stamp?: { verdict: Verdict; of: string };
+  /** Precedent clipper: a clipped reference picture. */
+  precedent?: Precedent;
 }
 
 export interface ConnectorElement extends BaseElement {
@@ -65,6 +92,8 @@ export interface ConnectorElement extends BaseElement {
   style?: ConnectorStyle;
   /** Line pattern; solid when missing. */
   pattern?: "solid" | "dashed" | "dotted";
+  /** Line thickness; 2 when missing. */
+  weight?: number;
 }
 
 export type ConnectorStyle = "straight" | "curved" | "elbow";
@@ -90,6 +119,8 @@ export interface ImageElement extends BaseElement {
   animated?: boolean;
   flipX?: boolean;
   flipY?: boolean;
+  /** Tracing paper overlay: the picture's dark lines drawn in this color on a see-through ground. */
+  tint?: string;
   /** Visible part of the picture, as fractions (0–1) of its natural size. */
   crop?: { x: number; y: number; width: number; height: number };
 }
