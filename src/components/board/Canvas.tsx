@@ -25,7 +25,8 @@ import {
   hasPoints,
   fontFamily,
 } from "@/lib/board/types";
-import { ElementNode, loadImage } from "./ElementNode";
+import { ElementNode } from "./ElementNode";
+import { loadImage, THUMB_SIDE } from "./imageCache";
 import { stickerUrl } from "@/lib/board/stickers";
 import {
   DEFAULT_PX_PER_METER, formatArea, formatLength, metersPerPxAt, polygonArea, polylineLength, snapAngle, SYMBOL_BY_ID,
@@ -1133,6 +1134,14 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     pinned?.forEach((id) => keep.add(id));
     return elements.filter((e) => e.type === "video" || keep.has(e.id) || rects.some((r) => intersects(r, worldBox(e, byId))));
   }, [elements, byId, view, exportRects, selection, editingId, pinned]);
+  // Pictures drawn at no more than their preview's size use the preview (never in an export, which wants every pixel).
+  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  const isSmall = (el: BoardElement) => {
+    if (el.type !== "image" || exportRects) return false;
+    const c = (el as ImageElement).crop;
+    const shown = Math.max(el.width / (c?.width || 1), el.height / (c?.height || 1));
+    return shown * s * dpr <= THUMB_SIDE;
+  };
 
   return (
     <div
@@ -1188,7 +1197,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
             }
             return (
               <ElementNode key={el.id} el={el} dark={dark} showAuthor={props.showAuthors} measure={measureLabel(el)}
-                zoom={el.type === "dimension" || el.type === "area" ? s : 1} editingCell={editingId === el.id ? editingCell : null} selected={selection.includes(el.id)} editing={editingId === el.id && el.type !== "frame" ? true : editingId === el.id}
+                zoom={el.type === "dimension" || el.type === "area" ? s : 1} small={isSmall(el)} editingCell={editingId === el.id ? editingCell : null} selected={selection.includes(el.id)} editing={editingId === el.id && el.type !== "frame" ? true : editingId === el.id}
                 draggable={canEdit && tool === "select" && !spaceDown && !el.locked && editingId !== el.id && !onVote && !presenting}
                 hidden={hiddenIds?.has(el.id) ?? false}
                 onDragStart={stable.onDragStart} onDragMove={stable.onDragMove} onDragEnd={stable.onDragEnd} onTransformEnd={stable.onTransformEnd} onDblClick={stable.onDblClick} />

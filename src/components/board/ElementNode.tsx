@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Konva from "konva";
 import { loadGif, type GifFrames } from "./gif";
+import { loadImage, loadThumb, peekImage, peekThumb, type Picture } from "./imageCache";
 import { isKeystoneEmbed } from "./embeds";
 import { stickerUrl } from "@/lib/board/stickers";
 import { Group, Rect, Text, Ellipse, Line, Image as KImage, Path, Label as KLabel, Tag } from "react-konva";
@@ -12,52 +13,6 @@ import type {
 import { fontFamily } from "@/lib/board/types";
 import { SHAPE_BY_ID } from "@/lib/board/shapes";
 import { cloudPath, polygonCentroid, SYMBOL_BY_ID } from "@/lib/board/arch";
-
-/**
- * Decoded pictures, shared by every node that shows the same file, so an item scrolled back into view (or a
- * picture used twice) draws at once instead of loading and decoding again. The oldest ones are dropped past
- * a limit so a big board doesn't keep every bitmap in memory.
- */
-const IMAGE_CACHE_MAX = 240;
-const imageCache = new Map<string, HTMLImageElement>();
-const imagePending = new Map<string, Promise<HTMLImageElement | null>>();
-
-function rememberImage(src: string, img: HTMLImageElement) {
-  imageCache.delete(src);
-  imageCache.set(src, img);
-  while (imageCache.size > IMAGE_CACHE_MAX) imageCache.delete(imageCache.keys().next().value as string);
-}
-
-/** A picture that has already been loaded, or null. */
-export function peekImage(src: string): HTMLImageElement | null {
-  const hit = imageCache.get(src);
-  if (hit) rememberImage(src, hit);
-  return hit ?? null;
-}
-
-/** Loads a picture once; null if it fails. */
-export function loadImage(src: string): Promise<HTMLImageElement | null> {
-  const hit = peekImage(src);
-  if (hit) return Promise.resolve(hit);
-  let p = imagePending.get(src);
-  if (p) return p;
-  p = new Promise<HTMLImageElement | null>((resolve) => {
-    const i = new window.Image();
-    let settled = false;
-    const done = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      imagePending.delete(src);
-      if (ok) rememberImage(src, i);
-      resolve(ok ? i : null);
-    };
-    i.onload = () => done(true);
-    i.onerror = () => done(false);
-    i.src = src;
-  });
-  imagePending.set(src, p);
-  return p;
-}
 
 function useImage(src: string) {
   const [img, setImg] = useState<HTMLImageElement | null>(() => (src ? peekImage(src) : null));
@@ -70,6 +25,20 @@ function useImage(src: string) {
     return () => { alive = false; };
   }, [src]);
   return img;
+}
+
+/** A picture's small preview (see imageCache); "" loads nothing. */
+function useThumb(src: string) {
+  const [t, setT] = useState<Picture | null>(() => (src ? peekThumb(src) : null));
+  useEffect(() => {
+    if (!src) { setT(null); return; }
+    const hit = peekThumb(src);
+    if (hit) { setT(hit); return; }
+    let alive = true;
+    loadThumb(src).then((i) => { if (alive && i) setT(i); });
+    return () => { alive = false; };
+  }, [src]);
+  return t;
 }
 
 /** Current frame of an animated GIF, advancing on its own timing; null until decoded. */
@@ -114,8 +83,13 @@ function lineTintFilter(hex: string) {
   };
 }
 
-function ImageShape({ el }: { el: ImageElement }) {
-  const img = useImage(el.src);
+/** `small`: the picture is drawn small enough on screen that its preview has all the pixels needed. */
+function ImageShape({ el, small }: { el: ImageElement; small: boolean }) {
+  const preview = small && !el.animated;
+  const full = useImage(preview ? "" : el.src);
+  const thumb = useThumb(preview ? el.src : "");
+  // While one loads, show the other if it's at hand (a blurry picture beats an empty box).
+  const img: Picture | null = preview ? thumb ?? peekImage(el.src) : full ?? peekThumb(el.src);
   const ref = useRef<Konva.Image>(null);
   const frame = useGifFrame(el.src, !!el.animated, ref);
   const tint = el.animated ? undefined : el.tint;
@@ -250,6 +224,8 @@ type Props = {
   measure?: string;
   /** Current zoom, so measurement labels stay readable. */
   zoom?: number;
+  /** Pictures: drawn small enough on screen to use the preview. */
+  small?: boolean;
   /** Table cell being edited (hidden so the editor overlay shows instead). */
   editingCell?: [number, number] | null;
   draggable: boolean;
@@ -262,7 +238,7 @@ type Props = {
   onDblClick: (id: string) => void;
 };
 
-export const ElementNode = memo(function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, editingCell, draggable, editing, onDragStart, onDragMove, onDragEnd, onTransformEnd, onDblClick }: Props) {
+export const ElementNode = memo(function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, small, editingCell, draggable, editing, onDragStart, onDragMove, onDragEnd, onTransformEnd, onDblClick }: Props) {
   const common = {
     id: el.id,
     name: "element",
@@ -352,7 +328,7 @@ export const ElementNode = memo(function ElementNode({ el, showAuthor, dark, hid
     case "image":
       return (
         <Group {...common}>
-          <ImageShape el={el as ImageElement} />
+          <ImageShape el={el as ImageElement} small={!!small} />
         </Group>
       );
     case "doc": {

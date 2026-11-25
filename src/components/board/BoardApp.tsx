@@ -33,6 +33,7 @@ import type { CanvasHandle, Tool, WheelMode } from "./Canvas";
 import type { Camera } from "./geometry";
 import { Toolbar } from "./Toolbar";
 import { PenPalette } from "./PenPalette";
+import { assetIdOf, setThumbUploader, thumbFromBlob } from "./imageCache";
 import { getQuality, setQuality, reduceImage, pdfSideFor, autoQualityFor, lowerQuality, QUALITIES, type Quality } from "./imageQuality";
 import { CropDialog, applyCrop } from "./CropDialog";
 const DocPanel = dynamic(() => import("./DocPanel").then((m) => m.DocPanel), { ssr: false });
@@ -434,11 +435,24 @@ export function BoardApp(p: BoardAppProps) {
     return scaled ? `${scaled} scaled plan${scaled > 1 ? "s" : ""}` : "No scale set";
   })();
 
+  const storeThumb = useCallback((aid: string, blob: Blob) => {
+    const share = p.shareToken ? `?share=${encodeURIComponent(p.shareToken)}` : "";
+    return fetch(`/api/assets/${aid}/thumb${share}`, { method: "PUT", headers: { "content-type": blob.type }, body: blob });
+  }, [p.shareToken]);
+  // Editors store the previews their board had to make for older pictures, so the next visit loads those instead.
+  useEffect(() => {
+    setThumbUploader(canEdit ? storeThumb : null);
+    return () => setThumbUploader(null);
+  }, [canEdit, storeThumb]);
   const uploadBlob = async (blob: Blob, name: string) => {
     const type = blob.type || mediaTypeFromName(name);
     const res = await fetch(`/api/boards/${p.boardId}/assets${q}`, { method: "POST", headers: { "content-type": type }, body: blob });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Upload failed");
-    return (await res.json()).url as string;
+    const url = (await res.json()).url as string;
+    // Pictures get a small preview for when the board is zoomed out.
+    const aid = assetIdOf(url);
+    if (aid) await thumbFromBlob(blob).then((t) => (t ? storeThumb(aid, t) : null)).catch(() => { /* the board makes one later */ });
+    return url;
   };
   const importPlan = async (file: File) => {
     const center = canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 };

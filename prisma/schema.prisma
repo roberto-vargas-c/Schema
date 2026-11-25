@@ -199,6 +199,8 @@ model Asset {
   /// "db" or "r2"
   storage   String   @default("db")
   size      Int      @default(0)
+  /// A small preview (longest side 512 px) of a picture, drawn when the board is zoomed out. Made in the browser.
+  thumb     Bytes?
   createdAt DateTime @default(now())
 
   board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
