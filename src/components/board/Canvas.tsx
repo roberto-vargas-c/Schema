@@ -277,6 +277,59 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     });
   }, [setCamera]);
   useEffect(() => () => cancelAnimationFrame(camFrame.current), []);
+
+  // Zooming with the wheel, a trackpad pinch or two fingers doesn't redraw the board on every step: the canvas already drawn is
+  // scaled on screen right away (like Miro does), and the board is redrawn sharp a few times a second and once the gesture stops.
+  const live = useRef<{ cam: Camera; idle: number; lastDraw: number; ending: boolean } | null>(null);
+  const showLive = useCallback(() => {
+    const l = live.current, el = stageRef.current?.container(), box = containerRef.current;
+    if (!el) return;
+    const base = cameraRef.current;
+    if (!l || l.cam === base) { el.style.transform = ""; el.style.transformOrigin = ""; return; }
+    const k = l.cam.scale / base.scale;
+    el.style.transformOrigin = "0 0";
+    el.style.transform = `matrix(${k}, 0, 0, ${k}, ${l.cam.x - base.x * k}, ${l.cam.y - base.y * k})`;
+    if (box) {
+      const g = gridStep(l.cam.scale);
+      box.style.backgroundSize = `${g}px ${g}px`;
+      box.style.backgroundPosition = `${l.cam.x}px ${l.cam.y}px`;
+    }
+  }, []);
+  const liveZoom = useCallback((u: (c: Camera) => Camera) => {
+    let l = live.current;
+    const cam = u(l?.cam ?? cameraRef.current);
+    if (!l) l = live.current = { cam, idle: 0, lastDraw: performance.now(), ending: false };
+    l.cam = cam;
+    l.ending = false;
+    showLive();
+    window.clearTimeout(l.idle);
+    const draw = (end: boolean) => {
+      const c = live.current;
+      if (!c) return;
+      c.lastDraw = performance.now();
+      c.ending = end;
+      setCamera(c.cam);
+    };
+    l.idle = window.setTimeout(() => draw(true), 120);
+    if (performance.now() - l.lastDraw > 220) draw(false);
+  }, [setCamera, showLive]);
+  // Once React has drawn a camera, scale the canvas from there (or not at all when the gesture is over). The board is drawn
+  // first, in this same frame, so the picture never jumps.
+  useLayoutEffect(() => {
+    const l = live.current;
+    if (!l) return;
+    stageRef.current?.draw();
+    if (l.ending && l.cam === camera) live.current = null;
+    showLive();
+  }, [camera, showLive]);
+  useEffect(() => () => { if (live.current) window.clearTimeout(live.current.idle); }, []);
+  const zoomLiveAround = useCallback((factor: number, sx: number, sy: number) => {
+    liveZoom((c) => {
+      const scale = clampScale(c.scale * factor);
+      const wx = (sx - c.x) / c.scale, wy = (sy - c.y) / c.scale;
+      return { scale, x: sx - wx * scale, y: sy - wy * scale };
+    });
+  }, [liveZoom]);
   const zoomAround = useCallback(
     (factor: number, sx: number, sy: number) => {
       queueCamera((c) => {
@@ -368,14 +421,18 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     if (!p) return;
     onManualCamera?.();
     const ev = e.evt;
+    // The point under the pointer on screen (the canvas may be scaled on screen mid-zoom, so not Konva's pointer position).
+    const box = containerRef.current?.getBoundingClientRect();
+    const sx = box ? ev.clientX - box.left : p.x, sy = box ? ev.clientY - box.top : p.y;
     // Pinch on a trackpad arrives as ctrl+wheel. Otherwise the setting decides: "auto" zooms with a
     // mouse wheel and pans with two fingers on a trackpad, which is told apart by its small, smooth deltas.
     const mouseWheel = ev.deltaMode === 1 || (ev.deltaX === 0 && Math.abs(ev.deltaY) >= 40 && Number.isInteger(ev.deltaY));
     const zoom = ev.ctrlKey || ev.metaKey || wheelMode === "zoom" || (wheelMode === "auto" && mouseWheel);
     if (zoom) {
-      const dy = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY;
-      const k = ev.ctrlKey && !mouseWheel ? 0.01 : 0.0018;
-      zoomAround(Math.exp(-Math.max(-300, Math.min(300, dy)) * k), p.x, p.y);
+      const dy = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY;
+      // A wheel notch (100) zooms about 1.4×; a pinch zooms about twice as far as the fingers move.
+      const k = ev.ctrlKey && !mouseWheel ? 0.02 : 0.0034;
+      zoomLiveAround(Math.exp(-Math.max(-300, Math.min(300, dy)) * k), sx, sy);
     } else {
       queueCamera((c) => ({ ...c, x: c.x - ev.deltaX, y: c.y - ev.deltaY }));
     }
@@ -389,7 +446,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     const local = (e: PointerEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     const begin = () => {
       const [a, b] = [...pinch.current.pts.values()];
-      pinch.current.start = { d: Math.hypot(b.x - a.x, b.y - a.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, cam: cameraRef.current };
+      pinch.current.start = { d: Math.hypot(b.x - a.x, b.y - a.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, cam: live.current?.cam ?? cameraRef.current };
       setGesture(null);
       stageRef.current?.find(".element").forEach((n) => { if (n.isDragging()) n.stopDrag(); });
       onManualCamera?.();
@@ -409,7 +466,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       const d = Math.hypot(b.x - a.x, b.y - a.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const scale = clampScale(st.cam.scale * (d / st.d));
       const wx = (st.mx - st.cam.x) / st.cam.scale, wy = (st.my - st.cam.y) / st.cam.scale;
-      queueCamera({ scale, x: mx - wx * scale, y: my - wy * scale });
+      liveZoom(() => ({ scale, x: mx - wx * scale, y: my - wy * scale }));
     };
     const up = (e: PointerEvent) => {
       if (e.pointerType !== "touch") return;
@@ -428,7 +485,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       e.preventDefault();
       const ge = e as Event & { scale: number; clientX: number; clientY: number };
       const r = el.getBoundingClientRect();
-      zoomAround(ge.scale / gScale, ge.clientX - r.left, ge.clientY - r.top);
+      zoomLiveAround(Math.pow(ge.scale / gScale, 2), ge.clientX - r.left, ge.clientY - r.top); // twice the fingers, like a trackpad pinch
       gScale = ge.scale;
     };
     el.addEventListener("pointerdown", down, true);
@@ -445,7 +502,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       el.removeEventListener("gesturestart", gStart);
       el.removeEventListener("gesturechange", gChange);
     };
-  }, [queueCamera, zoomAround, onManualCamera]);
+  }, [liveZoom, zoomLiveAround, onManualCamera]);
   const pinchEnded = useRef(0);
   const lastAreaDown = useRef<{ x: number; y: number; t: number } | null>(null);
   const pinching = () => !!pinch.current.start || performance.now() - pinchEnded.current < 150;
@@ -1091,8 +1148,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
   const cursor = gesture?.kind === "pan" ? "grabbing" : tool === "hand" || spaceDown ? "grab" : tool === "select" ? "default" : "crosshair";
   const s = camera.scale;
   // Grid dots shrink with the zoom, and the spacing doubles when they'd get too dense.
-  let gridSize = 24 * s;
-  while (gridSize < 14) gridSize *= 2;
+  const gridSize = gridStep(s);
   const dotR = Math.max(0.45, Math.min(1.3, 1.1 * Math.sqrt(s)));
   const gridColor = dark ? "#334155" : "#cbd5e1";
   const gridImage = props.grid === "none" || s <= 0.06 ? undefined
@@ -1396,6 +1452,13 @@ function snapToOthers(b: Box, all: BoardElement[], skip: string, thr: number): {
     guides.push([x1 - 12, bestY.at, x2 + 12, bestY.at]);
   }
   return { dx, dy, guides };
+}
+
+/** Spacing of the grid on screen: it shrinks with the zoom and doubles when the dots would get too dense. */
+function gridStep(scale: number) {
+  let g = 24 * scale;
+  while (g < 14) g *= 2;
+  return g;
 }
 
 /** Board-space box an element can draw into, generous for rotated items; connectors span the items they join. */
