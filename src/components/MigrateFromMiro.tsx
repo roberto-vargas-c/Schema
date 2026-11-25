@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRightLeft, Check, CircleAlert, Loader2, X } from "lucide-react";
-import { MiroAccount, useMiroConnections } from "@/components/board/MiroImport";
+import { MiroAccount, copyMiroImages, useMiroConnections } from "@/components/board/MiroImport";
+import type { BoardElement } from "@/lib/board/types";
 
 type MiroBoard = { id: string; name: string; teamId: string; teamName: string | null; modifiedAt?: string; owner?: string };
 type Status = { state: "waiting" | "running" | "done" | "failed"; note?: string; boardId?: string };
@@ -73,22 +74,30 @@ function MigrateDialog({ workspaceId, folderId, onClose }: { workspaceId: string
       if (stop.current) break;
       setStatus((s) => ({ ...s, [b.id]: { state: "running" } }));
       let st: Status;
+      const api = (body: object) => fetch(`/api/workspaces/${workspaceId}/import/miro`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }).then(async (res) => { const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(j.error ?? `failed (${res.status})`); return j; });
+      let created: string | null = null;
       try {
-        const res = await fetch(`/api/workspaces/${workspaceId}/import/miro`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ miroBoardId: b.id, folderId: folderId || undefined }),
+        const j = await api({ step: "start", miroBoardId: b.id, folderId: folderId || undefined });
+        created = j.boardId;
+        const images = (j.images ?? []) as { elementId: string; miroUrl: string }[];
+        const copied = await copyMiroImages(j.boardId, b.id, j.elements as BoardElement[], images, {
+          onProgress: (d, n) => { if (n) setStatus((s) => ({ ...s, [b.id]: { state: "running", note: `Copying pictures ${Math.min(d + 1, n)} of ${n}` } })); },
         });
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j.error ?? `failed (${res.status})`);
+        if (!copied.elements.length) throw new Error(images.length ? `Couldn't copy the pictures: ${copied.firstError}` : "Miro didn't return anything Schema can import from this board");
+        setStatus((s) => ({ ...s, [b.id]: { state: "running", note: "Saving" } }));
+        await api({ step: "finish", boardId: j.boardId, elements: copied.elements });
         const skipped = Object.values((j.skipped ?? {}) as Record<string, number>).reduce((a, n) => a + n, 0);
         const notes = [
-          `${j.items} item${j.items === 1 ? "" : "s"}`,
+          `${copied.elements.length} item${copied.elements.length === 1 ? "" : "s"}`,
           skipped ? `${skipped} skipped` : "",
-          j.imageFailures ? `${j.imageFailures} image${j.imageFailures === 1 ? "" : "s"} missing` : "",
+          copied.failed ? `${copied.failed} picture${copied.failed === 1 ? "" : "s"} couldn't be copied (${copied.firstError})` : "",
           j.truncated ? "first 3000 items only" : "",
         ].filter(Boolean).join(", ");
         st = { state: "done", boardId: j.boardId, note: notes };
       } catch (e) {
+        if (created) await api({ step: "cancel", boardId: created }).catch(() => {});
         st = { state: "failed", note: e instanceof Error ? e.message : "failed" };
       }
       setStatus((s) => ({ ...s, [b.id]: st }));
