@@ -34,7 +34,9 @@ export async function discover(issuer: string): Promise<Discovery> {
   const hit = discoveryCache.get(issuer);
   if (hit && Date.now() - hit.at < 3600_000) return hit.doc;
   const url = `${issuer.replace(/\/$/, "")}/.well-known/openid-configuration`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: "error" });
+  // Workers only accept "follow" or "manual" here ("error" throws), so a redirect is refused by hand.
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: "manual" });
+  if (res.status >= 300 && res.status < 400) throw new Error(`${url} redirected; use the issuer's exact address`);
   if (!res.ok) throw new Error(`Couldn't read ${url} (${res.status})`);
   const doc = (await res.json()) as Discovery;
   if (!doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri) throw new Error("The issuer's discovery document is incomplete");
