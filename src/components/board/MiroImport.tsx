@@ -93,6 +93,17 @@ export function MiroAccount({ miro, onConnected }: { miro: ReturnType<typeof use
   );
 }
 
+const SKIPPED_NAMES: Record<string, [string, string]> = {
+  paint: ["drawing", "drawings"], connector: ["connector", "connectors"], mindmap_node: ["mind map node", "mind map nodes"],
+  table: ["table", "tables"], comment: ["comment", "comments"], kanban: ["kanban", "kanbans"], unsupported: ["other item", "other items"],
+};
+/** "112 drawings and 5 connectors", from the import's skipped counts. */
+export function describeSkipped(skipped: Record<string, number> | undefined): string {
+  const parts = Object.entries(skipped ?? {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => { const [one, many] = SKIPPED_NAMES[k] ?? [k.replace(/_/g, " "), `${k.replace(/_/g, " ")}s`]; return `${n} ${n === 1 ? one : many}`; });
+  return parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
 /**
  * Copies a Miro board's pictures into a Schema board, one request each (keeps every request small
  * enough for the server's limits), and answers the elements with their pictures filled in. Pictures
@@ -109,12 +120,18 @@ export async function copyMiroImages(
     opts.onProgress?.(i, images.length);
     if (opts.shouldStop?.()) { drop.add(img.elementId); failed++; continue; }
     try {
-      const res = await fetch(`/api/boards/${schemaBoardId}/import/miro/image${opts.q ?? ""}`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ board: miroBoardId, url: img.miroUrl, token: opts.token || undefined }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j.src) throw new Error(j.error ?? `failed (${res.status})`);
+      // Busy or briefly failing servers (Miro's or ours) get a few more tries, a little later each time.
+      let res: Response | null = null, j: { src?: string; animated?: boolean; error?: string } = {};
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) await new Promise((r) => setTimeout(r, 1500 * 2 ** (attempt - 1)));
+        res = await fetch(`/api/boards/${schemaBoardId}/import/miro/image${opts.q ?? ""}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ board: miroBoardId, url: img.miroUrl, token: opts.token || undefined }),
+        }).catch(() => null);
+        j = res ? await res.json().catch(() => ({})) : {};
+        if (res && (res.ok || (res.status !== 429 && res.status < 500))) break;
+      }
+      if (!res?.ok || !j.src) throw new Error(j.error ?? (res ? `the server answered ${res.status}` : "no connection"));
       const el = byId.get(img.elementId);
       if (el) byId.set(el.id, { ...el, src: j.src, animated: j.animated } as BoardElement);
     } catch (e) {
@@ -165,11 +182,10 @@ export function MiroDialog({ boardId, q, at, onImport, onClose }: {
       const moved = els.map((x, i) => x.type === "connector"
         ? { ...x, z: z + i, from: { ...(x as ConnectorElement).from, x: (x as ConnectorElement).from.x + dx, y: (x as ConnectorElement).from.y + dy }, to: { ...(x as ConnectorElement).to, x: (x as ConnectorElement).to.x + dx, y: (x as ConnectorElement).to.y + dy } }
         : { ...x, x: x.x + dx, y: x.y + dy, z: x.type === "frame" ? z - 1000 + i : z + i });
-      const skipped = Object.entries(j.skipped as Record<string, number>).filter(([, n]) => n > 0)
-        .map(([k, n]) => `${n} ${k.replace(/_/g, " ")}${n === 1 ? "" : "s"}`);
+      const skipped = describeSkipped(j.skipped);
       const notes = [
         `Imported ${els.length} items from “${j.name}”.`,
-        skipped.length ? `Skipped ${skipped.join(", ")}.` : "",
+        skipped ? `Skipped ${skipped}${j.skipped?.paint ? " (Miro doesn't share freehand drawings with apps)" : ""}.` : "",
         j.imageFailures ? `${j.imageFailures} image${j.imageFailures === 1 ? "" : "s"} couldn't be copied.` : "",
         j.truncated ? "Only the first 3000 items were imported." : "",
       ].filter(Boolean).join(" ");

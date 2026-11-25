@@ -185,17 +185,22 @@ export function mapMiroBoard(items: MiroItem[], connectors: MiroConnector[]): Mi
   }
 
   for (const cn of connectors) {
-    const from = cn.startItem?.id ? idMap.get(cn.startItem.id) : undefined;
-    const to = cn.endItem?.id ? idMap.get(cn.endItem.id) : undefined;
-    if (!from || !to) { skipped.connector = (skipped.connector ?? 0) + 1; continue; }
-    const a = elements.find((e) => e.id === from)!, b = elements.find((e) => e.id === to)!;
+    // An end on an item we couldn't bring over (a drawing, say) stays where that item was, unattached.
+    const end = (ref: { id: string } | undefined): { id?: string; x: number; y: number } | null => {
+      const id = ref?.id ? idMap.get(ref.id) : undefined;
+      if (id) { const e = elements.find((x) => x.id === id)!; return { id, x: e.x + e.width / 2, y: e.y + e.height / 2 }; }
+      const raw = ref?.id ? byId.get(ref.id) : undefined;
+      return raw ? centerOf(raw) : null;
+    };
+    const fromEnd = end(cn.startItem), toEnd = end(cn.endItem);
+    if (!fromEnd || !toEnd) { skipped.connector = (skipped.connector ?? 0) + 1; continue; }
     const s = cn.style ?? {};
     const el = makeElement("connector", 0, 0) as ConnectorElement;
     Object.assign(el, {
       width: 0, height: 0, z: z++,
       stroke: color(s.strokeColor, "#1a1a1a"),
-      from: { id: from, x: a.x + a.width / 2, y: a.y + a.height / 2 },
-      to: { id: to, x: b.x + b.width / 2, y: b.y + b.height / 2 },
+      from: fromEnd,
+      to: toEnd,
       arrowEnd: (s.endStrokeCap ?? "stealth") !== "none",
       arrowStart: !!s.startStrokeCap && s.startStrokeCap !== "none",
       style: cn.shape === "curved" ? "curved" : cn.shape === "elbowed" ? "elbow" : "straight",
