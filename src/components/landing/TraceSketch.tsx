@@ -25,9 +25,8 @@ export function TraceSketch() {
         <path className={`${styles.stroke} ${styles.ghost}`} d={D} pathLength={1} />
         <path className={styles.stroke} d={D} pathLength={1} />
       </g>
-      <circle className={styles.tip} r="2.4">
-        <animateMotion dur="11s" repeatCount="indefinite" path={D} keyPoints="0;1;1" keyTimes="0;0.62;1" calcMode="linear" />
-      </circle>
+      {/* Where the pencil touches down: a fixed point at the start of the line. */}
+      <circle className={styles.origin} cx="20" cy="292" r="2.6" />
     </svg>
   );
 }

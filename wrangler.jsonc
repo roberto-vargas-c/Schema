@@ -2,6 +2,8 @@
   // Cloudflare Workers deployment. See "Deploying to Cloudflare" in README.md.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "schema",
+  // Keep schema.<subdomain>.workers.dev alongside the custom domain, so links already emailed keep working.
+  "workers_dev": true,
   // Our entry wraps the OpenNext worker and adds the realtime Durable Object.
   "main": "cloudflare/worker.ts",
   "compatibility_date": "2026-11-01",
@@ -25,7 +27,7 @@
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     // Public address of the app, used in emailed links. The APP_URL GitHub variable overrides it.
-    "APP_URL": "https://schema.robert-en-var.workers.dev",
+    "APP_URL": "https://schematrace.app",
     "EMAIL_FROM": "Schema <no-reply@schema.robertovargas.dev>",
     "NEXT_PUBLIC_REALTIME_URL": "/realtime",
     // Keystone (the 3D design companion): Connect Keystone on boards, and the address allowed to connect for Send to Schema

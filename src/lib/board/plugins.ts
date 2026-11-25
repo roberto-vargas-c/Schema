@@ -15,7 +15,7 @@ export function num(s: string | undefined): number {
 
 /**
  * A room program from pasted text: one room a line, "Name; area" or "Name; count; area per room", separated by semicolons, tabs
- * or commas. Keystone's own program files (No.; Room; Count; m²/room; Total) read too: lines without numbers are groups,
+ * or commas. Keystone's own program files (No.; Room; Count; Area each; Total) read too: lines without numbers are groups,
  * header lines are skipped.
  */
 export function parseProgram(text: string): RoomBrief[] {
@@ -57,9 +57,9 @@ const csvCell = (s: string | number) => {
 };
 const de = (n: number) => String(Math.round(n * 100) / 100);
 
-/** The program as Keystone reads it (semicolons, one row per room type, groups as their own rows). */
+/** The program as Keystone reads it (semicolons, one row per room type, groups as their own rows; "Area each" is the m² of one room). */
 export function programCsv(rooms: RoomBrief[], title = "Room program"): string {
-  const rows: (string | number)[][] = [[title, "", "", "", ""], ["No.", "Room", "Count", "m²/room", "Total"]];
+  const rows: (string | number)[][] = [[title, "", "", "", ""], ["No.", "Room", "Count", "Area each", "Total"]];
   const groups = Array.from(new Set(rooms.map((r) => r.group ?? "")));
   groups.forEach((g, gi) => {
     const list = rooms.filter((r) => (r.group ?? "") === g);
