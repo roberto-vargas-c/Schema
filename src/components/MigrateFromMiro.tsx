@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRightLeft, Check, CircleAlert, Loader2, X } from "lucide-react";
-import { MiroAccount, copyMiroImages, useMiroConnections } from "@/components/board/MiroImport";
+import { MiroAccount, copyMiroImages, describeSkipped, useMiroConnections } from "@/components/board/MiroImport";
 import type { BoardElement } from "@/lib/board/types";
 
 type MiroBoard = { id: string; name: string; teamId: string; teamName: string | null; modifiedAt?: string; owner?: string };
@@ -88,10 +88,10 @@ function MigrateDialog({ workspaceId, folderId, onClose }: { workspaceId: string
         if (!copied.elements.length) throw new Error(images.length ? `Couldn't copy the pictures: ${copied.firstError}` : "Miro didn't return anything Schema can import from this board");
         setStatus((s) => ({ ...s, [b.id]: { state: "running", note: "Saving" } }));
         await api({ step: "finish", boardId: j.boardId, elements: copied.elements });
-        const skipped = Object.values((j.skipped ?? {}) as Record<string, number>).reduce((a, n) => a + n, 0);
+        const skipped = describeSkipped(j.skipped);
         const notes = [
           `${copied.elements.length} item${copied.elements.length === 1 ? "" : "s"}`,
-          skipped ? `${skipped} skipped` : "",
+          skipped ? `skipped ${skipped}${j.skipped?.paint ? " (Miro doesn't share freehand drawings with apps)" : ""}` : "",
           copied.failed ? `${copied.failed} picture${copied.failed === 1 ? "" : "s"} couldn't be copied (${copied.firstError})` : "",
           j.truncated ? "first 3000 items only" : "",
         ].filter(Boolean).join(", ");
