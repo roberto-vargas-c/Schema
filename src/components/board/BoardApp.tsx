@@ -33,6 +33,7 @@ import type { CanvasHandle, Tool, WheelMode } from "./Canvas";
 import type { Camera } from "./geometry";
 import { Toolbar } from "./Toolbar";
 import { PenPalette } from "./PenPalette";
+import { PEN_TIPS, type PenTip } from "@/lib/board/penTips";
 import { assetIdOf, setThumbUploader, thumbFromBlob } from "./imageCache";
 import { getQuality, setQuality, reduceImage, pdfSideFor, autoQualityFor, lowerQuality, QUALITIES, type Quality } from "./imageQuality";
 import { CropDialog, applyCrop } from "./CropDialog";
@@ -103,7 +104,11 @@ export function BoardApp(p: BoardAppProps) {
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [penColor, setPenColor] = useState("#111827");
-  const [penWidth, setPenWidth] = useState(3);
+  const [penTip, setPenTip] = useState<PenTip>("pen");
+  // Each tip remembers its own width.
+  const [tipWidths, setTipWidths] = useState(() =>
+    Object.fromEntries(PEN_TIPS.map((t) => [t.id, t.defaultWidth])) as Record<PenTip, number>);
+  const activeTip: PenTip = tool === "highlighter" ? "highlighter" : penTip;
   // Per-person view settings from the board menu, kept in this browser.
   const [prefs, setPref] = useBoardPrefs();
   const { showAuthors, wheelMode } = prefs;
@@ -119,7 +124,6 @@ export function BoardApp(p: BoardAppProps) {
   };
   const [folderId, setFolderId] = useState(p.details?.folderId ?? null);
   const [infoDialog, setInfoDialog] = useState<"shortcuts" | "details" | null>(null);
-  const [highlightWidth, setHighlightWidth] = useState(18);
   const [connectorStyle, setConnectorStyle] = useState<ConnectorStyle>("curved");
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<CanvasHandle>(null);
@@ -1066,7 +1070,8 @@ export function BoardApp(p: BoardAppProps) {
         camera={camera}
         setCamera={setCamera}
         penColor={penColor}
-        penWidth={tool === "highlighter" ? highlightWidth : penWidth}
+        penWidth={tipWidths[activeTip]}
+        penTip={penTip}
         connectorStyle={connectorStyle}
         wheelMode={wheelMode}
         onOpenVideo={(el) => setPlayingVideo(el)}
@@ -1259,8 +1264,10 @@ export function BoardApp(p: BoardAppProps) {
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importPlan(f); e.target.value = ""; }} />
 
       {(tool === "pen" || tool === "highlighter") && (
-        <PenPalette color={penColor} setColor={setPenColor} highlighter={tool === "highlighter"}
-          width={tool === "highlighter" ? highlightWidth : penWidth} setWidth={tool === "highlighter" ? setHighlightWidth : setPenWidth} />
+        <PenPalette tip={activeTip} color={penColor} setColor={setPenColor}
+          // The highlighter keeps its own tool (and shortcut); picking it here switches to that tool.
+          setTip={(t) => { if (t === "highlighter") setTool("highlighter"); else { setPenTip(t); setTool("pen"); } }}
+          width={tipWidths[activeTip]} setWidth={(w) => setTipWidths((m) => ({ ...m, [activeTip]: w }))} />
       )}
       {tool === "connector" && (
         <div className="absolute left-3 top-[4.25rem] z-10 flex gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg sm:left-16 sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:flex-col">
