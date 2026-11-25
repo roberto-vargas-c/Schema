@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Konva from "konva";
 import { loadGif, type GifFrames } from "./gif";
 import { isKeystoneEmbed } from "./embeds";
@@ -13,14 +13,61 @@ import { fontFamily } from "@/lib/board/types";
 import { SHAPE_BY_ID } from "@/lib/board/shapes";
 import { cloudPath, polygonCentroid, SYMBOL_BY_ID } from "@/lib/board/arch";
 
+/**
+ * Decoded pictures, shared by every node that shows the same file, so an item scrolled back into view (or a
+ * picture used twice) draws at once instead of loading and decoding again. The oldest ones are dropped past
+ * a limit so a big board doesn't keep every bitmap in memory.
+ */
+const IMAGE_CACHE_MAX = 240;
+const imageCache = new Map<string, HTMLImageElement>();
+const imagePending = new Map<string, Promise<HTMLImageElement | null>>();
+
+function rememberImage(src: string, img: HTMLImageElement) {
+  imageCache.delete(src);
+  imageCache.set(src, img);
+  while (imageCache.size > IMAGE_CACHE_MAX) imageCache.delete(imageCache.keys().next().value as string);
+}
+
+/** A picture that has already been loaded, or null. */
+export function peekImage(src: string): HTMLImageElement | null {
+  const hit = imageCache.get(src);
+  if (hit) rememberImage(src, hit);
+  return hit ?? null;
+}
+
+/** Loads a picture once; null if it fails. */
+export function loadImage(src: string): Promise<HTMLImageElement | null> {
+  const hit = peekImage(src);
+  if (hit) return Promise.resolve(hit);
+  let p = imagePending.get(src);
+  if (p) return p;
+  p = new Promise<HTMLImageElement | null>((resolve) => {
+    const i = new window.Image();
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      imagePending.delete(src);
+      if (ok) rememberImage(src, i);
+      resolve(ok ? i : null);
+    };
+    i.onload = () => done(true);
+    i.onerror = () => done(false);
+    i.src = src;
+  });
+  imagePending.set(src, p);
+  return p;
+}
+
 function useImage(src: string) {
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [img, setImg] = useState<HTMLImageElement | null>(() => (src ? peekImage(src) : null));
   useEffect(() => {
     if (!src) { setImg(null); return; }
-    const i = new window.Image();
-    i.onload = () => setImg(i);
-    i.src = src;
-    return () => { i.onload = null; };
+    const hit = peekImage(src);
+    if (hit) { setImg(hit); return; }
+    let alive = true;
+    loadImage(src).then((i) => { if (alive && i) setImg(i); });
+    return () => { alive = false; };
   }, [src]);
   return img;
 }
@@ -215,7 +262,7 @@ type Props = {
   onDblClick: (id: string) => void;
 };
 
-export function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, editingCell, draggable, editing, onDragStart, onDragMove, onDragEnd, onTransformEnd, onDblClick }: Props) {
+export const ElementNode = memo(function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, editingCell, draggable, editing, onDragStart, onDragMove, onDragEnd, onTransformEnd, onDblClick }: Props) {
   const common = {
     id: el.id,
     name: "element",
@@ -514,7 +561,7 @@ export function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, e
     default:
       return null;
   }
-}
+});
 
 export const CARD_STATUS: Record<string, { label: string; color: string; bg: string }> = {
   todo: { label: "To do", color: "#475569", bg: "#f1f5f9" },

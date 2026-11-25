@@ -14,6 +14,21 @@ export function getQuality(): Quality {
   return "original";
 }
 export function setQuality(q: Quality) { try { localStorage.setItem(KEY, q); } catch { /* ignore */ } }
+const RANK: Record<Quality, number> = { original: 0, high: 1, medium: 2, low: 3 };
+/** The lower of two qualities. */
+export const lowerQuality = (a: Quality, b: Quality): Quality => (RANK[a] >= RANK[b] ? a : b);
+
+/**
+ * Automatic quality: the more pictures and PDF pages a board holds (counting the ones being added), the lighter new
+ * ones are made, so a big board stays quick to open and doesn't fill up storage. Small boards keep the chosen quality.
+ */
+export function autoQualityFor(pictures: number): Quality {
+  if (pictures > 250) return "low";
+  if (pictures > 100) return "medium";
+  if (pictures > 30) return "high";
+  return "original";
+}
+
 /** Longest side, in pixels, for PDF pages at a quality (sheets need more pixels than photos). */
 export const pdfSideFor = (q: Quality) => ({ original: 4000, high: 3000, medium: 2000, low: 1400 })[q];
 

@@ -16,6 +16,8 @@ export type BoardPrefs = {
   showAuthors: boolean;
   wheelMode: WheelMode;
   reduceMotion: boolean;
+  /** Make new pictures and PDF pages lighter as the board fills up. */
+  autoImageQuality: boolean;
 };
 
 export const DEFAULT_PREFS: BoardPrefs = {
@@ -28,6 +30,7 @@ export const DEFAULT_PREFS: BoardPrefs = {
   showAuthors: false,
   wheelMode: "auto",
   reduceMotion: false,
+  autoImageQuality: true,
 };
 
 const ALLOWED: Partial<Record<keyof BoardPrefs, readonly string[]>> = {
