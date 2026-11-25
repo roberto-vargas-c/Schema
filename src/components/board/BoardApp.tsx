@@ -659,7 +659,17 @@ export function BoardApp(p: BoardAppProps) {
   const openPlugin = (id: PluginId) => { setPlugin(id); setAiOpen(false); setHistoryOpen(false); setCommentsOpen(false); setVoteOpen(false); };
   useEffect(() => { if (aiOpen || historyOpen || commentsOpen || voteOpen) setPlugin(null); }, [aiOpen, historyOpen, commentsOpen, voteOpen]);
   const pluginCtx: PluginContext | null = plugin ? {
-    elements, selected, api, select: setSelection, toast: setToast, upload: uploadBlob, unit, boardTitle: title,
+    elements, selected, api, select: setSelection, toast: setToast, upload: uploadBlob, unit, boardTitle: title, boardId: p.boardId,
+    exportImage: async (rect, pixelsPerUnit, type = "image/jpeg") => {
+      // without the selection outline in the picture
+      const keep = selected.map((e) => e.id);
+      setSelection([]);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      try {
+        const img = canvasRef.current?.exportImage({ rect, pixelsPerUnit, type });
+        return img ? await (await fetch(img.url)).blob() : null;
+      } finally { setSelection(keep); }
+    },
     boardScale: session.boardScale ?? null, user: p.user ? { id: p.user.id, name: p.user.name } : null,
     center: () => canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 },
     focus: (els) => { const b = unionRect(els.map(elBounds)); if (b && canvasRef.current) flyTo(canvasRef.current.cameraFor(b, 120)); },
