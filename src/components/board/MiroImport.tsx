@@ -93,6 +93,40 @@ export function MiroAccount({ miro, onConnected }: { miro: ReturnType<typeof use
   );
 }
 
+/**
+ * Copies a Miro board's pictures into a Schema board, one request each (keeps every request small
+ * enough for the server's limits), and answers the elements with their pictures filled in. Pictures
+ * that can't be copied are left out and counted.
+ */
+export async function copyMiroImages(
+  schemaBoardId: string, miroBoardId: string, elements: BoardElement[], images: { elementId: string; miroUrl: string }[],
+  opts: { q?: string; token?: string; onProgress?: (done: number, total: number) => void; shouldStop?: () => boolean } = {},
+): Promise<{ elements: BoardElement[]; failed: number; firstError?: string }> {
+  const byId = new Map(elements.map((e) => [e.id, e]));
+  const drop = new Set<string>();
+  let failed = 0, firstError: string | undefined;
+  for (const [i, img] of images.entries()) {
+    opts.onProgress?.(i, images.length);
+    if (opts.shouldStop?.()) { drop.add(img.elementId); failed++; continue; }
+    try {
+      const res = await fetch(`/api/boards/${schemaBoardId}/import/miro/image${opts.q ?? ""}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ board: miroBoardId, url: img.miroUrl, token: opts.token || undefined }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.src) throw new Error(j.error ?? `failed (${res.status})`);
+      const el = byId.get(img.elementId);
+      if (el) byId.set(el.id, { ...el, src: j.src, animated: j.animated } as BoardElement);
+    } catch (e) {
+      failed++;
+      firstError ??= e instanceof Error ? e.message : "failed";
+      drop.add(img.elementId);
+    }
+  }
+  opts.onProgress?.(images.length, images.length);
+  return { elements: elements.filter((e) => !drop.has(e.id)).map((e) => byId.get(e.id)!), failed, firstError };
+}
+
 /** Imports a whole Miro board through Miro's API, with the connected Miro account or a token pasted by hand. */
 export function MiroDialog({ boardId, q, at, onImport, onClose }: {
   boardId: string; q: string; at: { x: number; y: number };
@@ -102,6 +136,7 @@ export function MiroDialog({ boardId, q, at, onImport, onClose }: {
   const [link, setLink] = useState("");
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const oauth = miro.available === true;
   const ready = !oauth || miro.connections.length > 0 || token.trim().length > 0;
@@ -116,7 +151,12 @@ export function MiroDialog({ boardId, q, at, onImport, onClose }: {
       const j = await res.json().catch(() => ({}));
       if (j.needsConnect) miro.refresh();
       if (!res.ok) throw new Error(j.error ?? "Import failed");
-      const els = j.elements as BoardElement[];
+      const copied = await copyMiroImages(boardId, j.miroBoardId, j.elements as BoardElement[], j.images ?? [], {
+        q, token: token.trim() || undefined, onProgress: (d, n) => n && setProgress(`Copying pictures ${Math.min(d + 1, n)}/${n}…`),
+      });
+      setProgress(null);
+      const els = copied.elements;
+      j.imageFailures = copied.failed;
       if (!els.length) throw new Error("That board has nothing Schema can import");
       // Center the imported content on the current view.
       const placed = els.filter((x) => x.type !== "connector");
@@ -137,7 +177,7 @@ export function MiroDialog({ boardId, q, at, onImport, onClose }: {
       onImport(moved as BoardElement[], notes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setProgress(null); }
   };
 
   return (
@@ -168,7 +208,7 @@ export function MiroDialog({ boardId, q, at, onImport, onClose }: {
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={busy || !ready}>{busy ? <><Loader2 size={16} className="animate-spin" /> Importing…</> : "Import"}</button>
+          <button className="btn-primary" disabled={busy || !ready}>{busy ? <><Loader2 size={16} className="animate-spin" /> {progress ?? "Importing…"}</> : "Import"}</button>
         </div>
       </form>
     </div>
