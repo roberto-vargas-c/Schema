@@ -26,6 +26,8 @@ import {
   fontFamily,
 } from "@/lib/board/types";
 import { ElementNode } from "./ElementNode";
+import { PenStroke } from "./PenStroke";
+import { TIP_BY_ID, tipColor, type PenTip } from "@/lib/board/penTips";
 import { loadImage, THUMB_SIDE } from "./imageCache";
 import { stickerUrl } from "@/lib/board/stickers";
 import {
@@ -98,6 +100,8 @@ type Props = {
   penColor: string;
   /** Stroke width for the pen / highlighter in screen-independent board units. */
   penWidth?: number;
+  /** Tip the pen tool draws with (the highlighter tool always uses the highlighter tip). */
+  penTip?: PenTip;
   onOpenVideo?: (el: VideoElement) => void;
   onOpenDoc?: (id: string) => void;
   /** An element waiting to be put down: shown as a ghost under the pointer; a click calls onPlace. */
@@ -147,7 +151,7 @@ type Gesture =
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; additive: boolean }
   | { kind: "shape"; type: ElementType; x0: number; y0: number; x1: number; y1: number }
   | { kind: "connector"; fromId?: string; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "pen"; points: number[]; highlight?: boolean }
+  | { kind: "pen"; points: number[]; tip: PenTip }
   | { kind: "line"; purpose: "measure" | "wall" | "calibrate"; x0: number; y0: number; x1: number; y1: number }
   | { kind: "area"; points: number[]; cx: number; cy: number; wall?: boolean };
 
@@ -158,7 +162,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
   const wheelMode = props.wheelMode ?? "auto";
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
-  const penWidth = props.penWidth ?? (tool === "highlighter" ? 18 : 3);
+  const penTip: PenTip = tool === "highlighter" ? "highlighter" : props.penTip ?? "pen";
+  const penWidth = props.penWidth ?? TIP_BY_ID[penTip].defaultWidth;
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -625,7 +630,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       setGesture({ kind: "connector", fromId: hit?.id, x0: p.x, y0: p.y, x1: p.x, y1: p.y });
       return;
     }
-    if (tool === "pen" || tool === "highlighter") { setGesture({ kind: "pen", points: [p.x, p.y], highlight: tool === "highlighter" }); return; }
+    if (tool === "pen" || tool === "highlighter") { setGesture({ kind: "pen", points: [p.x, p.y], tip: penTip }); return; }
     if (tool === "measure" || tool === "calibrate") {
       setGesture({ kind: "line", purpose: tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y });
       return;
@@ -794,8 +799,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       Object.assign(el, {
         width: Math.max(1, Math.max(...xs) - x), height: Math.max(1, Math.max(...ys) - y),
         points: g.points.map((v, i) => (i % 2 === 0 ? v - x : v - y)),
-        stroke: g.highlight ? (penColor === "#111827" ? "#facc15" : penColor) : penColor,
-        strokeWidth: penWidth, opacity: g.highlight ? 0.35 : 1, fill: "transparent",
+        stroke: tipColor(g.tip, penColor),
+        strokeWidth: penWidth, opacity: TIP_BY_ID[g.tip].opacity, fill: "transparent",
+        ...(g.tip !== "pen" ? { tip: g.tip } : {}),
       });
       api.add([el]);
     }
@@ -1243,8 +1249,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
             return <Arrow points={points} bezier={bezier} stroke="#0f8573" fill="#0f8573" strokeWidth={2} dash={[8, 6]} />;
           })()}
           {gesture?.kind === "pen" && (
-            <Line points={gesture.points} stroke={gesture.highlight ? (penColor === "#111827" ? "#facc15" : penColor) : penColor}
-              strokeWidth={penWidth} opacity={gesture.highlight ? 0.35 : 1} lineCap="round" lineJoin="round" tension={0.4} />
+            <PenStroke points={gesture.points} stroke={tipColor(gesture.tip, penColor)} width={penWidth} tip={gesture.tip}
+              opacity={TIP_BY_ID[gesture.tip].opacity} />
           )}
           {gesture?.kind === "line" && (
             <>

@@ -5,6 +5,7 @@ import Konva from "konva";
 import { loadGif, type GifFrames } from "./gif";
 import { loadImage, loadThumb, peekImage, peekThumb, type Picture } from "./imageCache";
 import { isKeystoneEmbed } from "./embeds";
+import { PenStroke } from "./PenStroke";
 import { stickerUrl } from "@/lib/board/stickers";
 import { Group, Rect, Text, Ellipse, Line, Image as KImage, Path, Label as KLabel, Tag } from "react-konva";
 import type {
@@ -321,7 +322,7 @@ export const ElementNode = memo(function ElementNode({ el, showAuthor, dark, hid
       return (
         <Group {...common}>
           <Rect width={el.width} height={el.height} fill="rgba(0,0,0,0)" />
-          <Line points={p.points} stroke={p.stroke} strokeWidth={p.strokeWidth} lineCap="round" lineJoin="round" tension={0.4} opacity={p.opacity ?? 1} />
+          <PenStroke points={p.points} stroke={p.stroke} width={p.strokeWidth} tip={p.tip} opacity={p.opacity ?? 1} />
         </Group>
       );
     }

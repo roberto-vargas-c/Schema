@@ -106,6 +106,8 @@ export interface PenElement extends BaseElement {
   type: "pen";
   points: number[]; // relative to x,y
   strokeWidth: number;
+  /** Pen tip it was drawn with ("pencil", "marker", …); none for the plain pen. See penTips.ts. */
+  tip?: string;
 }
 
 /** Real-world scale of a plan: `metersPerPx` meters per world pixel when the element is `refWidth` wide. */
