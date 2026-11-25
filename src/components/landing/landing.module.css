@@ -154,7 +154,7 @@
   transform: translate(1.4px, -0.8px);
   animation-delay: 0.12s;
 }
-.tip { fill: var(--graphite); animation: tip 11s linear infinite; }
+.origin { fill: var(--graphite); }
 
 /* 0–62% the line is traced, then it rests, then it lifts off the paper and starts again. */
 @keyframes trace {
@@ -162,10 +162,6 @@
   62% { stroke-dashoffset: 0; opacity: 1; }
   90% { stroke-dashoffset: 0; opacity: 1; }
   98%, 100% { stroke-dashoffset: 0; opacity: 0; }
-}
-@keyframes tip {
-  0%, 60% { opacity: 1; }
-  66%, 100% { opacity: 0; }
 }
 
 .foot {
@@ -190,5 +186,4 @@
 @media (prefers-reduced-motion: reduce) {
   .stroke { animation: none; stroke-dashoffset: 0; opacity: 1; }
   .ghost { opacity: 0.55; }
-  .tip { display: none; }
 }
