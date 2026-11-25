@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import {
   Accessibility, BoxSelect, Check, ChevronLeft, ChevronRight, Copy, Ellipsis, Expand, Eye, FileDown, FileImage, FileSpreadsheet, Grid3x3, History,
   Import, Keyboard, LayoutDashboard, LayoutTemplate, MessageSquare, MousePointer2, PenLine, Redo2, RotateCcw, Ruler, Shrink, SlidersHorizontal,
-  Spline, Trash2, Undo2, UserRound, Wind, X, Plus, CopyPlus, Upload, FolderInput, Star, PaintBucket, ScanEye, Maximize, Info, Moon,
+  Spline, ImageDown, Trash2, Undo2, UserRound, Wind, X, Plus, CopyPlus, Upload, FolderInput, Star, PaintBucket, ScanEye, Maximize, Info, Moon,
 } from "lucide-react";
 import type { BoardPrefs, GridStyle } from "./boardPrefs";
 import type { WheelMode } from "./Canvas";
@@ -223,6 +223,10 @@ export function BoardMenu({
       {heading("Scroll wheel")}
       {WHEEL_CHOICES.map((w) => choice(w.label, prefs.wheelMode === w.id, () => setPref("wheelMode", w.id), w.hint))}
       <p className="px-3 pb-1 pt-1 text-xs text-slate-500">Pinch always zooms.</p>
+      {divider}
+      {toggle("Lighter pictures on big boards", <ImageDown size={16} />, prefs.autoImageQuality, (v) => setPref("autoImageQuality", v),
+        "New pictures and PDF pages are made smaller as the board fills up: over 30 up to 2560 px, over 100 up to 1600 px, over 250 up to 1024 px")}
+      <p className="px-3 pb-1 pt-1 text-xs text-slate-500">Shrinks new uploads as the board passes 30, 100 and 250 pictures.</p>
     </>,
     a11y: <>
       {toggle("Reduce motion", <Wind size={16} />, prefs.reduceMotion, (v) => setPref("reduceMotion", v), "Jump instead of gliding when the view moves, and skip floating reactions")}

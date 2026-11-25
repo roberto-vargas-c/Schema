@@ -33,7 +33,8 @@ import type { CanvasHandle, Tool, WheelMode } from "./Canvas";
 import type { Camera } from "./geometry";
 import { Toolbar } from "./Toolbar";
 import { PenPalette } from "./PenPalette";
-import { getQuality, setQuality, reduceImage, pdfSideFor, type Quality } from "./imageQuality";
+import { assetIdOf, setThumbUploader, thumbFromBlob } from "./imageCache";
+import { getQuality, setQuality, reduceImage, pdfSideFor, autoQualityFor, lowerQuality, QUALITIES, type Quality } from "./imageQuality";
 import { CropDialog, applyCrop } from "./CropDialog";
 const DocPanel = dynamic(() => import("./DocPanel").then((m) => m.DocPanel), { ssr: false });
 import { decodeMiroClipboard, htmlImageSources, miroBoardId, pastedNotes, type MiroClip } from "@/lib/board/miro";
@@ -108,6 +109,9 @@ export function BoardApp(p: BoardAppProps) {
   const { showAuthors, wheelMode } = prefs;
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  /** Pictures (including PDF pages) on the board, for automatic upload quality. */
+  const picturesRef = useRef(0);
+  picturesRef.current = useMemo(() => liveElements.reduce((n, e) => n + (e.type === "image" ? 1 : 0), 0), [liveElements]);
   const cycleWheelMode = () => {
     const next: WheelMode = wheelMode === "auto" ? "zoom" : wheelMode === "zoom" ? "pan" : "auto";
     setPref("wheelMode", next);
@@ -431,11 +435,24 @@ export function BoardApp(p: BoardAppProps) {
     return scaled ? `${scaled} scaled plan${scaled > 1 ? "s" : ""}` : "No scale set";
   })();
 
+  const storeThumb = useCallback((aid: string, blob: Blob) => {
+    const share = p.shareToken ? `?share=${encodeURIComponent(p.shareToken)}` : "";
+    return fetch(`/api/assets/${aid}/thumb${share}`, { method: "PUT", headers: { "content-type": blob.type }, body: blob });
+  }, [p.shareToken]);
+  // Editors store the previews their board had to make for older pictures, so the next visit loads those instead.
+  useEffect(() => {
+    setThumbUploader(canEdit ? storeThumb : null);
+    return () => setThumbUploader(null);
+  }, [canEdit, storeThumb]);
   const uploadBlob = async (blob: Blob, name: string) => {
     const type = blob.type || mediaTypeFromName(name);
     const res = await fetch(`/api/boards/${p.boardId}/assets${q}`, { method: "POST", headers: { "content-type": type }, body: blob });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Upload failed");
-    return (await res.json()).url as string;
+    const url = (await res.json()).url as string;
+    // Pictures get a small preview for when the board is zoomed out.
+    const aid = assetIdOf(url);
+    if (aid) await thumbFromBlob(blob).then((t) => (t ? storeThumb(aid, t) : null)).catch(() => { /* the board makes one later */ });
+    return url;
   };
   const importPlan = async (file: File) => {
     const center = canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 };
@@ -545,6 +562,17 @@ export function BoardApp(p: BoardAppProps) {
     const origin = at ?? canvasRef.current?.viewportCenter() ?? { x: 0, y: 0 };
     const created: BoardElement[] = [];
     const failed: string[] = [];
+    // Upload quality: the person's choice, lowered on a board with many pictures unless they turned that off. The pictures
+    // being added count too (a PDF counts its pages once they're known).
+    const pictures = picturesRef.current + files.filter((f) => /^image\//.test(f.type || "") || kindOf(f) === "pdf").length;
+    let autoUsed: Quality | null = null;
+    const qualityFor = (extra = 0): Quality => {
+      const chosen = getQuality();
+      if (!prefsRef.current.autoImageQuality) return chosen;
+      const q = lowerQuality(chosen, autoQualityFor(pictures + extra));
+      if (q !== chosen) autoUsed = autoUsed ? lowerQuality(autoUsed, q) : q;
+      return q;
+    };
     // Each file's element, sized but not yet placed; laid out in rows once all are known.
     const items: BoardElement[][] = [];
     try {
@@ -569,7 +597,7 @@ export function BoardApp(p: BoardAppProps) {
           } else if (kind === "pdf") {
             setImporting(`Reading PDF${tag}…`);
             const { renderPdf } = await import("./pdfImport");
-            const pages = await renderPdf(f, (d, t) => setImporting(`Rendering page ${d}/${t}${tag}…`), pdfSideFor(getQuality()));
+            const pages = await renderPdf(f, (d, t) => setImporting(`Rendering page ${d}/${t}${tag}…`), (pages) => pdfSideFor(qualityFor(pages - 1)));
             const name = f.name.replace(/\.[^.]+$/, "");
             // The original file too, so editors can download the PDF itself and not only its pages.
             const source = await uploadBlob(f, f.name).catch(() => undefined);
@@ -598,7 +626,7 @@ export function BoardApp(p: BoardAppProps) {
             items.push([el]);
           } else {
             setImporting(`Uploading image${tag}…`);
-            const url = await uploadBlob(await reduceImage(f, getQuality()), f.name);
+            const url = await uploadBlob(await reduceImage(f, qualityFor()), f.name);
             const img = new window.Image();
             await new Promise((r, j) => { img.onload = r; img.onerror = j; img.src = url; });
             const k = Math.min(1, 480 / Math.max(img.width, img.height));
@@ -646,6 +674,10 @@ export function BoardApp(p: BoardAppProps) {
       }
       if (failed.length) setError(`Couldn't add ${failed.join("; ")}`);
       else if (skipped) setToast(`${skipped} file${skipped > 1 ? "s were" : " was"} skipped (files must be under ${FILE_MAX_BYTES / 1024 / 1024} MB)`);
+      else if (autoUsed) {
+        const label = QUALITIES.find((x) => x.id === autoUsed)!.label.replace(/^\w+ \((.*)\)$/, "$1");
+        setToast(`This board has many pictures, so new ones were made lighter (up to ${label}). You can turn this off in the board menu, Preferences.`);
+      }
     } finally {
       setImporting(null);
     }
@@ -947,6 +979,9 @@ export function BoardApp(p: BoardAppProps) {
     setToast(kind.startsWith("pdf") ? "Preparing the PDF…" : "Preparing the image…");
     try {
       await new Promise((r) => setTimeout(r, 30)); // let the toast paint before the heavy render
+      const rects = kind === "pdf-frames" ? frames.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })) : [selRect];
+      // Off-screen items aren't normally drawn: draw (and load) everything being exported first.
+      await c.prepareExport(rects);
       if (kind === "png" || kind === "png-hi") {
         const img = c.exportImage({ rect: selRect, pixelsPerUnit: kind === "png-hi" ? 4 : 2 });
         if (!img) { setToast("The board is empty."); return; }
@@ -958,7 +993,6 @@ export function BoardApp(p: BoardAppProps) {
         return;
       }
       // PDF pages are sized in points at 1 board unit = 1 pt, so a plan imported from a PDF keeps its paper size and scale.
-      const rects = kind === "pdf-frames" ? frames.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })) : [selRect];
       const { jsPDF } = await import("jspdf");
       let pdf: InstanceType<typeof jsPDF> | null = null;
       for (const rect of rects) {
@@ -977,6 +1011,7 @@ export function BoardApp(p: BoardAppProps) {
     } catch (e) {
       setToast(e instanceof Error ? `Export failed: ${e.message}` : "Export failed");
     } finally {
+      c.endExport();
       setExporting(false);
     }
   };

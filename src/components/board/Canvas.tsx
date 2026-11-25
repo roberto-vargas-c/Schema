@@ -20,10 +20,14 @@ import {
   type ConnectorStyle,
   type TableElement,
   type TopicElement,
+  type ImageElement,
+  type StickerElement,
   hasPoints,
   fontFamily,
 } from "@/lib/board/types";
 import { ElementNode } from "./ElementNode";
+import { loadImage, THUMB_SIDE } from "./imageCache";
+import { stickerUrl } from "@/lib/board/stickers";
 import {
   DEFAULT_PX_PER_METER, formatArea, formatLength, metersPerPxAt, polygonArea, polylineLength, snapAngle, SYMBOL_BY_ID,
   type BoardScale, type Unit,
@@ -66,6 +70,12 @@ export type CanvasHandle = {
    * padded); `pixelsPerUnit` is the target resolution, lowered if the image would be too big.
    */
   exportImage: (opts?: { rect?: R; pixelsPerUnit?: number; type?: "image/png" | "image/jpeg" }) => { url: string; rect: R } | null;
+  /**
+   * Only items near the view are drawn. Before exporting, call this with the rects to export (null: the whole board) so
+   * the items in them are drawn and their pictures loaded; call `endExport` afterwards.
+   */
+  prepareExport: (rects: (R | undefined)[] | null) => Promise<void>;
+  endExport: () => void;
 };
 
 /** Browsers refuse canvases much larger than this. */
@@ -207,6 +217,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
 
   const byId = useMemo(() => new Map(elements.map((e) => [e.id, e])), [elements]);
   const editing = editingId ? byId.get(editingId) : undefined;
+  /** While exporting, the rects whose items must be drawn even if they are off screen ("all": the whole board). */
+  const [exportRects, setExportRects] = useState<R[] | "all" | null>(null);
+  /** Items that must stay drawn while off screen: the children a frame drag is moving. */
+  const [pinned, setPinned] = useState<Set<string> | null>(null);
 
   // ── Sizing ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -244,15 +258,29 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
   };
 
   // ── Camera controls ───────────────────────────────────────────────────────
+  // Wheel, pinch and drag-to-pan events can arrive faster than the screen refreshes: apply them once per frame.
+  const camQueue = useRef<((c: Camera) => Camera)[]>([]);
+  const camFrame = useRef(0);
+  const queueCamera = useCallback((u: Camera | ((c: Camera) => Camera)) => {
+    camQueue.current.push(typeof u === "function" ? u : () => u);
+    if (camFrame.current) return;
+    camFrame.current = requestAnimationFrame(() => {
+      camFrame.current = 0;
+      const q = camQueue.current;
+      camQueue.current = [];
+      setCamera((c) => q.reduce((acc, f) => f(acc), c));
+    });
+  }, [setCamera]);
+  useEffect(() => () => cancelAnimationFrame(camFrame.current), []);
   const zoomAround = useCallback(
     (factor: number, sx: number, sy: number) => {
-      setCamera((c) => {
+      queueCamera((c) => {
         const scale = clampScale(c.scale * factor);
         const wx = (sx - c.x) / c.scale, wy = (sy - c.y) / c.scale;
         return { scale, x: sx - wx * scale, y: sy - wy * scale };
       });
     },
-    [setCamera],
+    [queueCamera],
   );
 
   // Read the container directly: the size state lags one render behind on first mount.
@@ -312,7 +340,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
         trRef.current?.nodes(prevNodes);
       }
     },
-  }), [zoomAround, size, camera, elements, setCamera, toWorld]);
+    prepareExport: async (rects) => {
+      const want = rects === null || rects.some((r) => !r) ? null : (rects as R[]);
+      const inside = want ? elements.filter((e) => e.type !== "connector" && want.some((r) => intersects(r, worldBox(e, byId)))) : elements;
+      // Load the pictures first, so they are drawn as soon as their nodes mount.
+      const srcs = new Set<string>();
+      for (const e of inside) {
+        if (e.type === "image") srcs.add((e as ImageElement).src);
+        else if (e.type === "sticker" && (e as StickerElement).sticker) { const u = stickerUrl((e as StickerElement).sticker!); if (u) srcs.add(u); }
+      }
+      await Promise.all([...srcs].map((src) => Promise.race([loadImage(src), new Promise((r) => setTimeout(r, 15000))])));
+      setExportRects(want ?? "all");
+      // Let React and Konva draw the newly mounted nodes.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    },
+    endExport: () => setExportRects(null),
+  }), [zoomAround, size, camera, elements, setCamera, toWorld, byId]);
 
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -329,7 +372,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       const k = ev.ctrlKey && !mouseWheel ? 0.01 : 0.0018;
       zoomAround(Math.exp(-Math.max(-300, Math.min(300, dy)) * k), p.x, p.y);
     } else {
-      setCamera((c) => ({ ...c, x: c.x - ev.deltaX, y: c.y - ev.deltaY }));
+      queueCamera((c) => ({ ...c, x: c.x - ev.deltaX, y: c.y - ev.deltaY }));
     }
   };
 
@@ -361,7 +404,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       const d = Math.hypot(b.x - a.x, b.y - a.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const scale = clampScale(st.cam.scale * (d / st.d));
       const wx = (st.mx - st.cam.x) / st.cam.scale, wy = (st.my - st.cam.y) / st.cam.scale;
-      setCamera({ scale, x: mx - wx * scale, y: my - wy * scale });
+      queueCamera({ scale, x: mx - wx * scale, y: my - wy * scale });
     };
     const up = (e: PointerEvent) => {
       if (e.pointerType !== "touch") return;
@@ -397,7 +440,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       el.removeEventListener("gesturestart", gStart);
       el.removeEventListener("gesturechange", gChange);
     };
-  }, [setCamera, zoomAround, onManualCamera]);
+  }, [queueCamera, zoomAround, onManualCamera]);
   const pinchEnded = useRef(0);
   const lastAreaDown = useRef<{ x: number; y: number; t: number } | null>(null);
   const pinching = () => !!pinch.current.start || performance.now() - pinchEnded.current < 150;
@@ -649,7 +692,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     if (!gesture) return;
     switch (gesture.kind) {
       case "pan":
-        setCamera({ ...gesture.cam, x: gesture.cam.x + sp.x - gesture.startX, y: gesture.cam.y + sp.y - gesture.startY });
+        queueCamera({ ...gesture.cam, x: gesture.cam.x + sp.x - gesture.startX, y: gesture.cam.y + sp.y - gesture.startY });
         break;
       case "marquee":
       case "shape":
@@ -858,6 +901,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       const kids = elements.filter((o) => o.id !== id && o.type !== "connector" && o.type !== "frame" && !selection.includes(o.id) && contains(fb, bounds(o)));
       ds.children.set(id, kids.map((k) => k.id));
       kids.forEach((k) => ds.start.set(k.id, { x: k.x, y: k.y }));
+      if (kids.length) setPinned((p) => new Set([...(p ?? []), ...kids.map((k) => k.id)]));
     }
   };
 
@@ -892,11 +936,16 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     const node = stage?.findOne(`#${id}`);
     if (!node) return;
     const patches = [{ id, patch: { x: node.x(), y: node.y() } }];
+    const s0 = ds?.start.get(id);
     for (const k of ds?.children.get(id) ?? []) {
       const kn = stage?.findOne(`#${k}`);
+      const ks = ds?.start.get(k);
       if (kn) patches.push({ id: k, patch: { x: kn.x(), y: kn.y() } });
+      // A child that wasn't drawn (off screen) moves by the same amount as the frame.
+      else if (ks && s0) patches.push({ id: k, patch: { x: ks.x + node.x() - s0.x, y: ks.y + node.y() - s0.y } });
     }
     api.updateMany(patches);
+    if (ds?.children.get(id)?.length) setPinned(null);
     ds?.children.delete(id);
     ds?.start.delete(id);
     if (ds && ds.start.size === 0) dragState.current = null;
@@ -1053,6 +1102,47 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
   };
   const peerSel = peers.flatMap((p) => (p.selection ?? []).map((id) => ({ id, color: p.color })));
 
+  // Element nodes get the same handler functions on every render, so a pan or zoom doesn't redraw them.
+  const handlers = useRef({ onDragStart, onDragMove, onDragEnd, onTransformEnd, startEdit });
+  handlers.current = { onDragStart, onDragMove, onDragEnd, onTransformEnd, startEdit };
+  const stable = useMemo(() => ({
+    onDragStart: (id: string) => handlers.current.onDragStart(id),
+    onDragMove: (id: string, evt?: MouseEvent | PointerEvent | TouchEvent) => handlers.current.onDragMove(id, evt),
+    onDragEnd: (id: string) => handlers.current.onDragEnd(id),
+    onTransformEnd: (id: string) => handlers.current.onTransformEnd(id),
+    onDblClick: (id: string) => handlers.current.startEdit(id),
+  }), []);
+  // Dark-mode copies are kept per element, so an unchanged element stays the same object.
+  const darkCopies = useRef(new WeakMap<BoardElement, BoardElement>());
+  const shown = (raw: BoardElement) => {
+    if (!dark) return raw;
+    let d = darkCopies.current.get(raw);
+    if (!d) { d = forDark(raw); darkCopies.current.set(raw, d); }
+    return d;
+  };
+  // Only items in or near the view are drawn (and their pictures loaded): half a screen of margin on every side,
+  // so items are ready before they scroll in. Selected, edited and playing items are always kept.
+  const view = useMemo(() => {
+    const w = size.width / s, h = size.height / s, m = Math.max(w, h) * 0.5;
+    return { x: -camera.x / s - m, y: -camera.y / s - m, width: w + m * 2, height: h + m * 2 };
+  }, [camera.x, camera.y, s, size.width, size.height]);
+  const drawn = useMemo(() => {
+    if (exportRects === "all") return elements;
+    const rects = exportRects ? [view, ...exportRects] : [view];
+    const keep = new Set<string>(selection);
+    if (editingId) keep.add(editingId);
+    pinned?.forEach((id) => keep.add(id));
+    return elements.filter((e) => e.type === "video" || keep.has(e.id) || rects.some((r) => intersects(r, worldBox(e, byId))));
+  }, [elements, byId, view, exportRects, selection, editingId, pinned]);
+  // Pictures drawn at no more than their preview's size use the preview (never in an export, which wants every pixel).
+  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  const isSmall = (el: BoardElement) => {
+    if (el.type !== "image" || exportRects) return false;
+    const c = (el as ImageElement).crop;
+    const shown = Math.max(el.width / (c?.width || 1), el.height / (c?.height || 1));
+    return shown * s * dpr <= THUMB_SIDE;
+  };
+
   return (
     <div
       ref={containerRef}
@@ -1091,8 +1181,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
         onContextMenu={(e) => e.evt.preventDefault()}
       >
         <Layer>
-          {elements.map((raw) => {
-            const el = dark ? forDark(raw) : raw;
+          {drawn.map((raw) => {
+            const el = shown(raw);
             if (el.type === "connector") {
               if (props.showConnectors === false) return null;
               const c = el as ConnectorElement;
@@ -1106,10 +1196,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
               );
             }
             return (
-              <ElementNode key={el.id} el={el} dark={dark} showAuthor={props.showAuthors} measure={measureLabel(el)} zoom={s} editingCell={editingId === el.id ? editingCell : null} selected={selection.includes(el.id)} editing={editingId === el.id && el.type !== "frame" ? true : editingId === el.id}
+              <ElementNode key={el.id} el={el} dark={dark} showAuthor={props.showAuthors} measure={measureLabel(el)}
+                zoom={el.type === "dimension" || el.type === "area" ? s : 1} small={isSmall(el)} editingCell={editingId === el.id ? editingCell : null} selected={selection.includes(el.id)} editing={editingId === el.id && el.type !== "frame" ? true : editingId === el.id}
                 draggable={canEdit && tool === "select" && !spaceDown && !el.locked && editingId !== el.id && !onVote && !presenting}
                 hidden={hiddenIds?.has(el.id) ?? false}
-                onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransformEnd={onTransformEnd} onDblClick={startEdit} />
+                onDragStart={stable.onDragStart} onDragMove={stable.onDragMove} onDragEnd={stable.onDragEnd} onTransformEnd={stable.onTransformEnd} onDblClick={stable.onDblClick} />
             );
           })}
           <Transformer ref={trRef} rotateEnabled flipEnabled={false}
@@ -1299,6 +1390,32 @@ function snapToOthers(b: Box, all: BoardElement[], skip: string, thr: number): {
     guides.push([x1 - 12, bestY.at, x2 + 12, bestY.at]);
   }
   return { dx, dy, guides };
+}
+
+/** Board-space box an element can draw into, generous for rotated items; connectors span the items they join. */
+function worldBox(el: BoardElement, byId: Map<string, BoardElement>): R {
+  if (el.type === "connector") {
+    const c = el as ConnectorElement;
+    const end = (e: ConnectorElement["from"]) => {
+      const t = e.id ? byId.get(e.id) : undefined;
+      return t && t.type !== "connector" ? worldBox(t, byId) : { x: e.x, y: e.y, width: 0, height: 0 };
+    };
+    return unionRect([end(c.from), end(c.to)])!;
+  }
+  let x0 = 0, y0 = 0, x1 = el.width, y1 = el.height;
+  if (hasPoints(el) && el.points.length >= 2) {
+    for (let i = 0; i + 1 < el.points.length; i += 2) {
+      x0 = Math.min(x0, el.points[i]); x1 = Math.max(x1, el.points[i]);
+      y0 = Math.min(y0, el.points[i + 1]); y1 = Math.max(y1, el.points[i + 1]);
+    }
+  }
+  if (el.rotation) {
+    // Rotation turns the item around its top-left corner: anything within its farthest corner's reach.
+    const r = Math.max(Math.hypot(x0, y0), Math.hypot(x1, y0), Math.hypot(x0, y1), Math.hypot(x1, y1));
+    return { x: el.x - r, y: el.y - r, width: r * 2, height: r * 2 };
+  }
+  // Frame titles and author labels sit just outside the box.
+  return { x: el.x + x0, y: el.y + y0 - 30, width: x1 - x0, height: y1 - y0 + 30 };
 }
 
 const DARK_INK = new Set(["text", "pen", "dimension", "area", "cloud", "connector", "symbol"]);

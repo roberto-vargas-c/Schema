@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Konva from "konva";
 import { loadGif, type GifFrames } from "./gif";
+import { loadImage, loadThumb, peekImage, peekThumb, type Picture } from "./imageCache";
 import { isKeystoneEmbed } from "./embeds";
 import { stickerUrl } from "@/lib/board/stickers";
 import { Group, Rect, Text, Ellipse, Line, Image as KImage, Path, Label as KLabel, Tag } from "react-konva";
@@ -14,15 +15,30 @@ import { SHAPE_BY_ID } from "@/lib/board/shapes";
 import { cloudPath, polygonCentroid, SYMBOL_BY_ID } from "@/lib/board/arch";
 
 function useImage(src: string) {
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [img, setImg] = useState<HTMLImageElement | null>(() => (src ? peekImage(src) : null));
   useEffect(() => {
     if (!src) { setImg(null); return; }
-    const i = new window.Image();
-    i.onload = () => setImg(i);
-    i.src = src;
-    return () => { i.onload = null; };
+    const hit = peekImage(src);
+    if (hit) { setImg(hit); return; }
+    let alive = true;
+    loadImage(src).then((i) => { if (alive && i) setImg(i); });
+    return () => { alive = false; };
   }, [src]);
   return img;
+}
+
+/** A picture's small preview (see imageCache); "" loads nothing. */
+function useThumb(src: string) {
+  const [t, setT] = useState<Picture | null>(() => (src ? peekThumb(src) : null));
+  useEffect(() => {
+    if (!src) { setT(null); return; }
+    const hit = peekThumb(src);
+    if (hit) { setT(hit); return; }
+    let alive = true;
+    loadThumb(src).then((i) => { if (alive && i) setT(i); });
+    return () => { alive = false; };
+  }, [src]);
+  return t;
 }
 
 /** Current frame of an animated GIF, advancing on its own timing; null until decoded. */
@@ -67,8 +83,13 @@ function lineTintFilter(hex: string) {
   };
 }
 
-function ImageShape({ el }: { el: ImageElement }) {
-  const img = useImage(el.src);
+/** `small`: the picture is drawn small enough on screen that its preview has all the pixels needed. */
+function ImageShape({ el, small }: { el: ImageElement; small: boolean }) {
+  const preview = small && !el.animated;
+  const full = useImage(preview ? "" : el.src);
+  const thumb = useThumb(preview ? el.src : "");
+  // While one loads, show the other if it's at hand (a blurry picture beats an empty box).
+  const img: Picture | null = preview ? thumb ?? peekImage(el.src) : full ?? peekThumb(el.src);
   const ref = useRef<Konva.Image>(null);
   const frame = useGifFrame(el.src, !!el.animated, ref);
   const tint = el.animated ? undefined : el.tint;
@@ -203,6 +224,8 @@ type Props = {
   measure?: string;
   /** Current zoom, so measurement labels stay readable. */
   zoom?: number;
+  /** Pictures: drawn small enough on screen to use the preview. */
+  small?: boolean;
   /** Table cell being edited (hidden so the editor overlay shows instead). */
   editingCell?: [number, number] | null;
   draggable: boolean;
@@ -215,7 +238,7 @@ type Props = {
   onDblClick: (id: string) => void;
 };
 
-export function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, editingCell, draggable, editing, onDragStart, onDragMove, onDragEnd, onTransformEnd, onDblClick }: Props) {
+export const ElementNode = memo(function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, small, editingCell, draggable, editing, onDragStart, onDragMove, onDragEnd, onTransformEnd, onDblClick }: Props) {
   const common = {
     id: el.id,
     name: "element",
@@ -305,7 +328,7 @@ export function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, e
     case "image":
       return (
         <Group {...common}>
-          <ImageShape el={el as ImageElement} />
+          <ImageShape el={el as ImageElement} small={!!small} />
         </Group>
       );
     case "doc": {
@@ -514,7 +537,7 @@ export function ElementNode({ el, showAuthor, dark, hidden, measure, zoom = 1, e
     default:
       return null;
   }
-}
+});
 
 export const CARD_STATUS: Record<string, { label: string; color: string; bg: string }> = {
   todo: { label: "To do", color: "#475569", bg: "#f1f5f9" },

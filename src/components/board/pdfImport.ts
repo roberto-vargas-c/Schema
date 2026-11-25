@@ -6,17 +6,19 @@ const MAX_PAGES = 30;
 const TARGET_PX = 4000; // longest side of each rendered sheet
 
 /** Render each PDF page to a high-resolution PNG in the browser using pdf.js. */
-export async function renderPdf(file: File, onProgress?: (done: number, total: number) => void, targetPx = TARGET_PX): Promise<RenderedPage[]> {
+/** `targetPx` is the longest side of each page, or a function of the page count that returns it. */
+export async function renderPdf(file: File, onProgress?: (done: number, total: number) => void, targetPx: number | ((pages: number) => number) = TARGET_PX): Promise<RenderedPage[]> {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
   const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   const doc = await task.promise;
   const total = Math.min(doc.numPages, MAX_PAGES);
+  const side = typeof targetPx === "function" ? targetPx(total) : targetPx;
   const out: RenderedPage[] = [];
   for (let n = 1; n <= total; n++) {
     const page = await doc.getPage(n);
     const base = page.getViewport({ scale: 1 }); // 1 unit = 1 PDF point
-    const scale = Math.min(6, targetPx / Math.max(base.width, base.height));
+    const scale = Math.min(6, side / Math.max(base.width, base.height));
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width);
@@ -26,7 +28,7 @@ export async function renderPdf(file: File, onProgress?: (done: number, total: n
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvas, canvasContext: ctx, viewport }).promise;
     // Full-resolution sheets stay lossless; smaller ones are compressed.
-    let blob = targetPx >= TARGET_PX
+    let blob = side >= TARGET_PX
       ? await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"))
       : await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/webp", 0.85));
     if (!blob || blob.size > 24 * 1024 * 1024) blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.9));
