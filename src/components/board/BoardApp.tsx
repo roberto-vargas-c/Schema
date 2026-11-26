@@ -32,7 +32,7 @@ import { TimerWidget, VotePanel, PrivateModeButton, ReactionPicker, tallyVotes, 
 import type { CanvasHandle, Tool, WheelMode } from "./Canvas";
 import type { Camera } from "./geometry";
 import { Toolbar } from "./Toolbar";
-import { PenPalette } from "./PenPalette";
+import { PenMenuButton, PenPalette } from "./PenPalette";
 import { PEN_TIPS, type PenTip } from "@/lib/board/penTips";
 import { assetIdOf, setThumbUploader, thumbFromBlob } from "./imageCache";
 import { getQuality, setQuality, reduceImage, pdfSideFor, autoQualityFor, lowerQuality, QUALITIES, type Quality } from "./imageQuality";
@@ -109,6 +109,21 @@ export function BoardApp(p: BoardAppProps) {
   const [tipWidths, setTipWidths] = useState(() =>
     Object.fromEntries(PEN_TIPS.map((t) => [t.id, t.defaultWidth])) as Record<PenTip, number>);
   const activeTip: PenTip = tool === "highlighter" ? "highlighter" : penTip;
+  // The pen menu opens with the pen, highlighter or eraser and closes once a stroke starts.
+  const penFamily = tool === "pen" || tool === "highlighter" || tool === "eraser";
+  const [penMenuOpen, setPenMenuOpen] = useState(true);
+  const wasPenFamily = useRef(penFamily);
+  useEffect(() => {
+    if (penFamily && !wasPenFamily.current) setPenMenuOpen(true);
+    wasPenFamily.current = penFamily;
+  }, [penFamily]);
+  /** Picking the pen tool again from a toolbar opens or closes its menu. */
+  const pickTool = useCallback((t: Tool) => {
+    if (t === tool && penFamily) setPenMenuOpen((o) => !o);
+    else if (t === "pen" || t === "highlighter") setPenMenuOpen(true);
+    setTool(t);
+  }, [tool, penFamily]);
+  const closePenMenu = useCallback(() => setPenMenuOpen(false), []);
   // Per-person view settings from the board menu, kept in this browser.
   const [prefs, setPref] = useBoardPrefs();
   const { showAuthors, wheelMode } = prefs;
@@ -1078,6 +1093,7 @@ export function BoardApp(p: BoardAppProps) {
         penColor={penColor}
         penWidth={tipWidths[activeTip]}
         penTip={penTip}
+        onDrawStart={closePenMenu}
         connectorStyle={connectorStyle}
         wheelMode={wheelMode}
         onOpenVideo={(el) => setPlayingVideo(el)}
@@ -1240,7 +1256,7 @@ export function BoardApp(p: BoardAppProps) {
         </div>
       </header>
 
-      <Toolbar tool={tool} setTool={setTool} canEdit={canEdit} canComment={!!p.user} onImage={() => fileRef.current?.click()}
+      <Toolbar tool={tool} setTool={pickTool} canEdit={canEdit} canComment={!!p.user} onImage={() => fileRef.current?.click()}
         onEmbed={() => setEmbedDialog("")} placingShape={placingShape} setPlacingShape={setPlacingShape}
         stickersOpen={stickersOpen} onStickers={() => { setStickersOpen((o) => !o); setArchOpen(false); }} onDoc={addDoc}
         archOpen={archOpen} onArch={canEdit ? () => { setArchOpen((o) => !o); setStickersOpen(false); } : undefined} />
@@ -1261,7 +1277,7 @@ export function BoardApp(p: BoardAppProps) {
         onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) addFiles(fs); e.target.value = ""; }} />
 
       {canEdit && (
-        <ArchToolbar tool={tool} setTool={setTool} onImportPlan={() => planInputRef.current?.click()} importing={importing}
+        <ArchToolbar tool={tool} setTool={pickTool} onImportPlan={() => planInputRef.current?.click()} importing={importing}
           placingSymbol={placingSymbol} setPlacingSymbol={setPlacingSymbol}
           unit={unit} setUnit={(u) => api.setSession("unit", u)} scaleText={scaleText} mobileOpen={archOpen}
           plugin={plugin} onPlugin={openPlugin} />
@@ -1269,12 +1285,14 @@ export function BoardApp(p: BoardAppProps) {
       <input ref={planInputRef} type="file" accept="application/pdf,.pdf,image/png,image/jpeg,image/webp" hidden
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importPlan(f); e.target.value = ""; }} />
 
-      {(tool === "pen" || tool === "highlighter") && (
-        <PenPalette tip={activeTip} color={penColor} setColor={setPenColor}
-          // The highlighter keeps its own tool (and shortcut); picking it here switches to that tool.
-          setTip={(t) => { if (t === "highlighter") setTool("highlighter"); else { setPenTip(t); setTool("pen"); } }}
+      {penFamily && canEdit && !presenting && (penMenuOpen ? (
+        <PenPalette tip={tool === "eraser" ? "eraser" : activeTip} color={penColor} setColor={setPenColor}
+          // The highlighter and eraser keep their own tools (and shortcuts); picking them here switches to that tool.
+          setTip={(t) => { if (t === "highlighter" || t === "eraser") setTool(t); else { setPenTip(t); setTool("pen"); } }}
           width={tipWidths[activeTip]} setWidth={(w) => setTipWidths((m) => ({ ...m, [activeTip]: w }))} />
-      )}
+      ) : (
+        <PenMenuButton tip={tool === "eraser" ? "eraser" : activeTip} color={penColor} onOpen={() => setPenMenuOpen(true)} />
+      ))}
       {tool === "connector" && (
         <div className="absolute left-3 top-[4.25rem] z-10 flex gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg sm:left-16 sm:top-1/2 sm:ml-2 sm:-translate-y-1/2 sm:flex-col">
           {CONNECTOR_STYLES.map(([id, label, d]) => (

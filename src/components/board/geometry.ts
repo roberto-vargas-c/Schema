@@ -1,4 +1,4 @@
-import type { BoardElement, ConnectorElement } from "@/lib/board/types";
+import type { BoardElement, ConnectorElement, PenElement } from "@/lib/board/types";
 
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Camera = { x: number; y: number; scale: number };
@@ -64,6 +64,33 @@ export function hitElement(els: BoardElement[], p: { x: number; y: number }, exc
     if (p.x >= e.x && p.x <= e.x + e.width && p.y >= e.y && p.y <= e.y + e.height) return e;
   }
   return undefined;
+}
+
+/**
+ * Whether a circle of radius `r` around world point `p` touches a pen stroke's line (its width counts).
+ * Used by the eraser.
+ */
+export function penStrokeHit(el: PenElement, p: { x: number; y: number }, r: number): boolean {
+  const pad = r + (el.strokeWidth ?? 2) / 2;
+  // Quick reject with the stroke's box (rotation turns around x,y, so pad the box by its diagonal).
+  const reach = el.rotation ? Math.hypot(el.width, el.height) : 0;
+  if (p.x < el.x - reach - pad || p.x > el.x + el.width + reach + pad || p.y < el.y - reach - pad || p.y > el.y + el.height + reach + pad) return false;
+  // Into the stroke's own frame: points are relative to x,y and rotate around it.
+  let lx = p.x - el.x, ly = p.y - el.y;
+  if (el.rotation) {
+    const a = (-el.rotation * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    [lx, ly] = [lx * c - ly * s, lx * s + ly * c];
+  }
+  const pts = el.points;
+  if (pts.length < 2) return false;
+  if (pts.length < 4) return Math.hypot(lx - pts[0], ly - pts[1]) <= pad;
+  for (let i = 0; i + 3 < pts.length; i += 2) {
+    const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, ((lx - ax) * dx + (ly - ay) * dy) / len2)) : 0;
+    if (Math.hypot(lx - (ax + t * dx), ly - (ay + t * dy)) <= pad) return true;
+  }
+  return false;
 }
 
 type Side = "l" | "r" | "t" | "b";
