@@ -284,7 +284,7 @@ function useEscape(onClose: () => void) {
 
 export const SHORTCUTS: [string, string][] = [
   ["V", "Select"], ["H", "Hand (pan)"], ["Space + drag", "Pan"], ["N", "Sticky note"], ["T", "Text"], ["D", "Task card"],
-  ["R", "Rectangle"], ["O", "Ellipse"], ["F", "Frame"], ["L", "Connector"], ["P", "Pen"], ["I", "Highlighter"],
+  ["R", "Rectangle"], ["O", "Ellipse"], ["F", "Frame"], ["L", "Connector"], ["P", "Pen"], ["I", "Highlighter"], ["E", "Eraser"],
   ["G", "Mind map"], ["C", "Comment"], ["M", "Measure"], ["A", "Area"], ["W", "Wall"], ["K", "Set scale"], ["Q", "Revision cloud"],
   ["Ctrl/⌘ + Z", "Undo"], ["Ctrl/⌘ + Shift + Z, Ctrl + Y", "Redo"], ["Ctrl/⌘ + A", "Select all"], ["Ctrl/⌘ + D", "Duplicate"],
   ["Ctrl/⌘ + C, V", "Copy and paste"], ["Delete", "Delete selection"], ["Arrow keys", "Nudge (Shift for more)"],

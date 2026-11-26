@@ -40,7 +40,7 @@ export function Toolbar({
   const btn = (active: boolean) =>
     `flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition ${active ? "bg-brand-600 text-white" : "text-slate-700 hover:bg-slate-100"}`;
   const render = (items: Item[]) => items.filter((t) => !t.edit || canEdit).map((t) => (
-    <button key={t.id} className={btn(tool === t.id)} title={`${t.label}${t.key ? ` (${t.key})` : ""}`} onClick={() => { setTool(t.id); setShapesOpen(false); }}>
+    <button key={t.id} className={btn(tool === t.id || (t.id === "pen" && tool === "eraser"))} title={`${t.label}${t.key ? ` (${t.key})` : ""}`} onClick={() => { setTool(t.id); setShapesOpen(false); }}>
       <t.icon size={18} />
     </button>
   ));

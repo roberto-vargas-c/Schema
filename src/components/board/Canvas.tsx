@@ -44,6 +44,7 @@ import {
   contains,
   hitElement,
   intersects,
+  penStrokeHit,
   normRect,
   unionRect,
   type Camera,
@@ -54,6 +55,8 @@ export type Tool =
   | "select" | "hand" | "sticky" | "text" | "rect" | "ellipse" | "diamond" | "connector" | "pen" | "frame" | "comment"
   // architecture
   | "measure" | "area" | "wall" | "cloud" | "highlighter" | "calibrate" | "symbol"
+  // erases whole pen strokes
+  | "eraser"
   // content blocks
   | "card" | "table" | "mindmap" | "shape";
 
@@ -102,6 +105,8 @@ type Props = {
   penWidth?: number;
   /** Tip the pen tool draws with (the highlighter tool always uses the highlighter tip). */
   penTip?: PenTip;
+  /** A pen, highlighter or eraser stroke just started (the pen menu closes so it doesn't cover the drawing). */
+  onDrawStart?: () => void;
   onOpenVideo?: (el: VideoElement) => void;
   onOpenDoc?: (id: string) => void;
   /** An element waiting to be put down: shown as a ghost under the pointer; a click calls onPlace. */
@@ -152,6 +157,8 @@ type Gesture =
   | { kind: "shape"; type: ElementType; x0: number; y0: number; x1: number; y1: number }
   | { kind: "connector"; fromId?: string; x0: number; y0: number; x1: number; y1: number }
   | { kind: "pen"; points: number[]; tip: PenTip }
+  /** Eraser drag: strokes it has touched so far (hidden at once, removed together on release). */
+  | { kind: "erase"; ids: string[]; x: number; y: number }
   | { kind: "line"; purpose: "measure" | "wall" | "calibrate"; x0: number; y0: number; x1: number; y1: number }
   | { kind: "area"; points: number[]; cx: number; cy: number; wall?: boolean };
 
@@ -559,7 +566,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       }
       if (mod || e.altKey) return;
       const shortcuts: Record<string, Tool> = {
-        v: "select", h: "hand", n: "sticky", t: "text", r: "rect", o: "ellipse", l: "connector", p: "pen", f: "frame", c: "comment",
+        v: "select", h: "hand", n: "sticky", t: "text", r: "rect", o: "ellipse", l: "connector", p: "pen", f: "frame", c: "comment", e: "eraser",
         m: "measure", a: "area", w: "wall", k: "calibrate", q: "cloud", i: "highlighter", g: "mindmap", d: "card",
       };
       const t = shortcuts[e.key.toLowerCase()];
@@ -687,7 +694,12 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       setGesture({ kind: "connector", fromId: hit?.id, x0: p.x, y0: p.y, x1: p.x, y1: p.y });
       return;
     }
-    if (tool === "pen" || tool === "highlighter") { setGesture({ kind: "pen", points: [p.x, p.y], tip: penTip }); return; }
+    if (tool === "pen" || tool === "highlighter") { props.onDrawStart?.(); setGesture({ kind: "pen", points: [p.x, p.y], tip: penTip }); return; }
+    if (tool === "eraser") {
+      props.onDrawStart?.();
+      setGesture({ kind: "erase", ids: eraseAlong([], p.x, p.y, p.x, p.y), x: p.x, y: p.y });
+      return;
+    }
     if (tool === "measure" || tool === "calibrate") {
       setGesture({ kind: "line", purpose: tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y });
       return;
@@ -738,6 +750,27 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     return () => { window.removeEventListener("pointerup", end); window.removeEventListener("blur", end); };
   }, [panning]);
 
+  const erasing = gesture?.kind === "erase" ? new Set(gesture.ids) : null;
+  /** Eraser size on screen, in pixels (a fingertip on touch screens). */
+  const eraserRadius = () => (coarsePointer() ? 14 : 9) / camera.scale;
+  const [eraserPt, setEraserPt] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => { if (tool !== "eraser") setEraserPt(null); }, [tool]);
+  /** Pen strokes the eraser touches moving from (x0,y0) to (x1,y1), added to `ids`. */
+  const eraseAlong = (ids: string[], x0: number, y0: number, x1: number, y1: number): string[] => {
+    const r = eraserRadius();
+    // Sample the move so a fast swipe doesn't skip over thin strokes.
+    const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / r));
+    const hit = new Set(ids);
+    for (const el of elements) {
+      if (el.type !== "pen" || el.locked || hit.has(el.id) || hiddenIds?.has(el.id)) continue;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        if (penStrokeHit(el as PenElement, { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t }, r)) { hit.add(el.id); break; }
+      }
+    }
+    return hit.size === ids.length ? ids : Array.from(hit);
+  };
+
   const lastCursor = useRef(0);
   const onPointerMove = () => {
     if (pinch.current.start) return;
@@ -747,6 +780,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     const now = performance.now();
     if (now - lastCursor.current > 40) { lastCursor.current = now; api.setCursor(p); }
     if (ghostFor) setGhostPt(p);
+    if (tool === "eraser") setEraserPt(p);
     if (tool === "connector") {
       const h = hitElement(elements, p, gesture?.kind === "connector" ? gesture.fromId : undefined)?.id ?? null;
       if (h !== hoverId) setHoverId(h);
@@ -768,6 +802,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
           setGesture({ ...gesture, points: [gesture.points[0], gesture.points[1], q.x, q.y] });
         } else setGesture({ ...gesture, points: [...gesture.points, p.x, p.y] });
         break;
+      case "erase": {
+        const ids = eraseAlong(gesture.ids, gesture.x, gesture.y, p.x, p.y);
+        setGesture({ ...gesture, ids, x: p.x, y: p.y });
+        break;
+      }
       case "line": {
         const q = shiftDown.current ? snapAngle(gesture.x0, gesture.y0, p.x, p.y) : p;
         setGesture({ ...gesture, x1: q.x, y1: q.y });
@@ -782,7 +821,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e?: KonvaEventObject<PointerEvent>) => {
+    // A finger has no hover: drop the eraser ring when it lifts.
+    if (e && e.evt.pointerType !== "mouse") setEraserPt(null);
     const g = gesture;
     if (g?.kind === "area") return; // areas are finished with a double-click, Enter, or by clicking the first point
     setGesture(null);
@@ -790,6 +831,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
     if (g.kind === "place") {
       const p = pointerWorld() ?? ghostPt;
       if (p && props.placing) props.onPlace?.(p);
+      return;
+    }
+    if (g.kind === "erase") {
+      if (g.ids.length) api.remove(g.ids);
       return;
     }
     if (g.kind === "line") {
@@ -1145,7 +1190,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
   };
 
   // ── Render ───────────────────────────────────────────────────────────────
-  const cursor = gesture?.kind === "pan" ? "grabbing" : tool === "hand" || spaceDown ? "grab" : tool === "select" ? "default" : "crosshair";
+  const cursor = gesture?.kind === "pan" ? "grabbing" : tool === "hand" || spaceDown ? "grab" : tool === "select" ? "default" : tool === "eraser" ? "none" : "crosshair";
   const s = camera.scale;
   // Grid dots shrink with the zoom, and the spacing doubles when they'd get too dense.
   const gridSize = gridStep(s);
@@ -1218,7 +1263,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
         backgroundSize: `${gridSize}px ${gridSize}px`,
         backgroundPosition: `${camera.x}px ${camera.y}px`,
       }}
-      onPointerLeave={() => { api.setCursor(null); setGhostPt(null); setHoverId(null); }}
+      onPointerLeave={() => { api.setCursor(null); setGhostPt(null); setHoverId(null); setEraserPt(null); }}
       onMouseDown={(e) => {
         // Clicking the canvas must not move focus to <body>: that would blur a text editor
         // the click just opened. Release focus from any other field so shortcuts keep working.
@@ -1244,6 +1289,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
       >
         <Layer>
           {drawn.map((raw) => {
+            if (erasing?.has(raw.id)) return null;
             const el = shown(raw);
             if (el.type === "connector") {
               if (props.showConnectors === false) return null;
@@ -1304,6 +1350,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(props, ref
             const { points, bezier } = connectorPath(preview, byId);
             return <Arrow points={points} bezier={bezier} stroke="#0f8573" fill="#0f8573" strokeWidth={2} dash={[8, 6]} />;
           })()}
+          {tool === "eraser" && eraserPt && (
+            <Circle x={eraserPt.x} y={eraserPt.y} radius={eraserRadius()} stroke="#64748b" strokeWidth={1.5 / s}
+              fill="rgba(148,163,184,0.15)" listening={false} />
+          )}
           {gesture?.kind === "pen" && (
             <PenStroke points={gesture.points} stroke={tipColor(gesture.tip, penColor)} width={penWidth} tip={gesture.tip}
               opacity={TIP_BY_ID[gesture.tip].opacity} />
@@ -1486,6 +1536,8 @@ function worldBox(el: BoardElement, byId: Map<string, BoardElement>): R {
   // Frame titles and author labels sit just outside the box.
   return { x: el.x + x0, y: el.y + y0 - 30, width: x1 - x0, height: y1 - y0 + 30 };
 }
+
+const coarsePointer = () => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 
 const DARK_INK = new Set(["text", "pen", "dimension", "area", "cloud", "connector", "symbol"]);
 /** In dark mode, near-black lines and text are drawn light so they stay readable; white frames turn dark. Display only. */
