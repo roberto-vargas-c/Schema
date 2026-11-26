@@ -92,6 +92,7 @@ function MigrateDialog({ workspaceId, folderId, onClose }: { workspaceId: string
         const notes = [
           `${copied.elements.length} item${copied.elements.length === 1 ? "" : "s"}`,
           skipped ? `skipped ${skipped}${j.skipped?.paint ? " (Miro doesn't share freehand drawings with apps)" : ""}` : "",
+          describeSkipped(j.placeholders) ? `${describeSkipped(j.placeholders)} kept as labelled boxes` : "",
           copied.failed ? `${copied.failed} picture${copied.failed === 1 ? "" : "s"} couldn't be copied (${copied.firstError})` : "",
           j.truncated ? "first 3000 items only" : "",
         ].filter(Boolean).join(", ");

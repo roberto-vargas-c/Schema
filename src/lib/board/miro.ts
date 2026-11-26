@@ -75,14 +75,54 @@ export type MiroImport = {
   /** Image elements whose src is still the Miro image API link; the server swaps in a stored copy. */
   images: { elementId: string; miroUrl: string }[];
   skipped: Record<string, number>;
+  /** Items Miro doesn't share the content of, kept as labelled boxes where they were. */
+  placeholders: Record<string, number>;
 };
+
+/** Items whose content Miro's API doesn't give apps: kept as a labelled box so the layout survives. */
+const PLACEHOLDER_LABEL: Record<string, string> = {
+  preview: "Link preview", table: "Table", table_text: "Table", data_table_format: "Table", doc_format: "Doc",
+  kanban: "Kanban", mindmap_node: "Mind map", unsupported: "Miro item", usm: "Story map", code: "Code block",
+};
+
+/** Text a Miro item carries in any of the fields its different types use. */
+function anyText(d: Record<string, unknown> | undefined): string {
+  if (!d) return "";
+  for (const k of ["content", "text", "title", "plainText", "description"]) {
+    const v = d[k];
+    if (typeof v === "string" && v.trim()) return htmlToText(v);
+    if (v && typeof v === "object" && typeof (v as { content?: unknown }).content === "string") return htmlToText((v as { content: string }).content);
+  }
+  return "";
+}
+
+/** A data table's cells, when Miro gives them (rows of cells, or columns plus rows). */
+function tableCells(d: Record<string, unknown> | undefined): string[][] | null {
+  if (!d) return null;
+  const cellText = (c: unknown): string =>
+    typeof c === "string" ? htmlToText(c) : typeof c === "number" || typeof c === "boolean" ? String(c)
+      : c && typeof c === "object" ? anyText(c as Record<string, unknown>) || String((c as { value?: unknown }).value ?? "") : "";
+  const cols = Array.isArray(d.columns) ? (d.columns as unknown[]).map(cellText) : null;
+  const rows = Array.isArray(d.rows) ? (d.rows as unknown[]) : null;
+  if (!rows?.length && !cols?.length) return null;
+  const body = (rows ?? []).slice(0, 200).map((r) => {
+    if (Array.isArray(r)) return r.map(cellText);
+    const o = (r ?? {}) as Record<string, unknown>;
+    const cells = Array.isArray(o.cells) ? o.cells : Array.isArray(o.values) ? o.values : null;
+    return cells ? (cells as unknown[]).map(cellText) : Object.values(o).map(cellText);
+  });
+  const all = cols?.length ? [cols, ...body] : body;
+  const width = Math.min(30, Math.max(1, ...all.map((r) => r.length)));
+  return all.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ""));
+}
 
 /**
  * Maps Miro items and connectors to elements with the content's top-left corner at (0, 0).
  * Miro positions are item centers; children of a frame are relative to the frame's top-left corner.
  */
-export function mapMiroBoard(items: MiroItem[], connectors: MiroConnector[]): MiroImport {
-  const byId = new Map(items.map((i) => [i.id, i]));
+export function mapMiroBoard(items: MiroItem[], connectors: MiroConnector[], more: { refs?: MiroItem[] } = {}): MiroImport {
+  // `refs`: items fetched one by one because a connector ends on them, only used for where they are.
+  const byId = new Map([...(more.refs ?? []), ...items].map((i) => [i.id, i]));
   const centers = new Map<string, { x: number; y: number }>();
   const centerOf = (it: MiroItem, depth = 0): { x: number; y: number } => {
     const known = centers.get(it.id);
@@ -102,12 +142,17 @@ export function mapMiroBoard(items: MiroItem[], connectors: MiroConnector[]): Mi
   const elements: BoardElement[] = [];
   const images: MiroImport["images"] = [];
   const skipped: Record<string, number> = {};
+  const placeholders: Record<string, number> = {};
   const idMap = new Map<string, string>();
   // Frames first so they sit underneath their contents.
   const ordered = [...items].sort((a, b) => Number(b.type === "frame") - Number(a.type === "frame"));
   let z = 1;
 
+  // A data table Miro gives the cells of comes over whole, so its cell items are already in it.
+  const tables = new Set(items.filter((i) => (i.type === "table" || i.type === "data_table_format") && tableCells(i.data)).map((i) => i.id));
+
   for (const it of ordered) {
+    if (it.parent?.id && tables.has(it.parent.id)) continue;
     const w = it.geometry?.width ?? 0, h = it.geometry?.height ?? 0;
     const c = centerOf(it);
     const at = (dw: number, dh: number) => ({ x: c.x - (w || dw) / 2, y: c.y - (h || dh) / 2, width: w || dw, height: h || dh });
@@ -169,12 +214,55 @@ export function mapMiroBoard(items: MiroItem[], connectors: MiroConnector[]): Mi
       }
       case "embed":
       case "document": {
-        const url = typeof it.data?.url === "string" ? it.data.url : typeof it.data?.documentUrl === "string" ? (it.data.documentUrl as string) : "";
-        if (!url) break;
-        const g = at(360, 120);
-        el = makeElement("embed", g.x, g.y, { ...g, width: Math.max(g.width, 240), height: Math.max(g.height, 100) });
-        Object.assign(el, { url, title: htmlToText(it.data?.title) || undefined });
+        const d = it.data ?? {};
+        const html = typeof d.html === "string" ? d.html : "";
+        const url = [d.url, d.documentUrl, html.match(/\b(?:src|href)\s*=\s*["']([^"']+)["']/i)?.[1]]
+          .find((v): v is string => typeof v === "string" && /^https?:\/\//i.test(v.replace(/&amp;/g, "&")))?.replace(/&amp;/g, "&") ?? "";
+        const preview = typeof d.previewUrl === "string" ? d.previewUrl : "";
+        if (url) {
+          const g = at(360, 120);
+          el = makeElement("embed", g.x, g.y, { ...g, width: Math.max(g.width, 240), height: Math.max(g.height, 100) });
+          Object.assign(el, { url, title: htmlToText(d.title as string | undefined) || undefined, site: typeof d.providerName === "string" ? d.providerName : undefined });
+        } else if (preview) {
+          // No link, but Miro keeps a picture of it.
+          const g = at(400, 300);
+          el = makeElement("image", g.x, g.y, { ...g, fill: "transparent", stroke: "transparent" });
+          (el as ImageElement).src = "";
+          images.push({ elementId: el.id, miroUrl: preview });
+        }
         break;
+      }
+      case "data_table_format":
+      case "table": {
+        const cells = tableCells(it.data);
+        if (!cells) break;
+        const g = at(480, 160);
+        el = makeElement("table", g.x, g.y, { ...g, cells, header: true });
+        break;
+      }
+      case "mindmap_node": {
+        const t = anyText(it.data) || htmlToText((it.data?.nodeView as { data?: { content?: string } } | undefined)?.data?.content);
+        if (!t) break;
+        const g = at(160, 50);
+        el = makeElement("text", g.x, g.y, { ...g, text: t, fontSize: 16, stroke: "#111827", fill: "transparent", align: "center" });
+        break;
+      }
+    }
+    if (!el && it.type !== "paint" && it.type !== "connector") {
+      // Text in a type we don't model (table text, say) still comes over as text.
+      const t = anyText(it.data);
+      if (t) {
+        const g = at(240, 40);
+        el = makeElement("text", g.x, g.y, { ...g, text: t, fontSize: num(s.fontSize, 16), stroke: color(s.color, "#111827"), fill: "transparent", align: "left" });
+      } else if (w > 0 && h > 0 && !(it.parent?.id && byId.get(it.parent.id)?.type !== "frame")) {
+        // (Parts of a bigger item, like a table's cells, are covered by that item's box.)
+        // Nothing to show: a labelled box keeps the layout, so the person can see what to bring over by hand.
+        const label = PLACEHOLDER_LABEL[it.type] ?? "Miro item";
+        el = makeElement("rect", c.x - w / 2, c.y - h / 2, {
+          width: w, height: h, text: `${label} (Miro doesn't share this with apps)`, fontSize: Math.max(12, Math.min(28, w / 16)),
+          fill: "#f8fafc", stroke: "#94a3b8",
+        });
+        placeholders[it.type] = (placeholders[it.type] ?? 0) + 1;
       }
     }
     if (!el) { skipped[it.type] = (skipped[it.type] ?? 0) + 1; continue; }
@@ -222,7 +310,7 @@ export function mapMiroBoard(items: MiroItem[], connectors: MiroConnector[]): Mi
       } else { e.x -= minX; e.y -= minY; }
     }
   }
-  return { elements, images, skipped };
+  return { elements, images, skipped, placeholders };
 }
 
 /**
