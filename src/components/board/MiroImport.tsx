@@ -95,7 +95,8 @@ export function MiroAccount({ miro, onConnected }: { miro: ReturnType<typeof use
 
 const SKIPPED_NAMES: Record<string, [string, string]> = {
   paint: ["drawing", "drawings"], connector: ["connector", "connectors"], mindmap_node: ["mind map node", "mind map nodes"],
-  table: ["table", "tables"], comment: ["comment", "comments"], kanban: ["kanban", "kanbans"], unsupported: ["other item", "other items"],
+  table: ["table", "tables"], table_text: ["table text", "table texts"], data_table_format: ["table", "tables"], preview: ["link preview", "link previews"],
+  doc_format: ["doc", "docs"], comment: ["comment", "comments"], kanban: ["kanban", "kanbans"], unsupported: ["other item", "other items"],
 };
 /** "112 drawings and 5 connectors", from the import's skipped counts. */
 export function describeSkipped(skipped: Record<string, number> | undefined): string {
@@ -186,6 +187,7 @@ export function MiroDialog({ boardId, q, at, onImport, onClose }: {
       const notes = [
         `Imported ${els.length} items from “${j.name}”.`,
         skipped ? `Skipped ${skipped}${j.skipped?.paint ? " (Miro doesn't share freehand drawings with apps)" : ""}.` : "",
+        describeSkipped(j.placeholders) ? `${describeSkipped(j.placeholders)} kept as labelled boxes (Miro doesn't share what's in them).` : "",
         j.imageFailures ? `${j.imageFailures} image${j.imageFailures === 1 ? "" : "s"} couldn't be copied.` : "",
         j.truncated ? "Only the first 3000 items were imported." : "",
       ].filter(Boolean).join(" ");

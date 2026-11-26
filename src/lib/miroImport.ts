@@ -7,12 +7,16 @@ import type { BoardElement } from "./board/types";
 import { MIRO_API as API, MiroError } from "./miroAuth";
 
 const MAX_ITEMS = 3000;
+/** Single-item requests a read may add to the board listing. */
+const MAX_EXTRA_REQUESTS = 60;
 
 export type MiroBoardRead = {
   elements: BoardElement[];
   /** Pictures still to copy, one request each (see copyMiroImage): their elements have no src yet. */
   images: { elementId: string; miroUrl: string }[];
   skipped: Record<string, number>;
+  /** Items kept as labelled boxes because Miro doesn't share what's in them. */
+  placeholders: Record<string, number>;
   truncated: boolean;
 };
 
@@ -45,8 +49,33 @@ export async function readMiroBoard(token: string, miroBoardId: string): Promise
   };
   const b = encodeURIComponent(miroBoardId);
   const [items, connectors] = await Promise.all([all<MiroItem>(`/boards/${b}/items`), all<MiroConnector>(`/boards/${b}/connectors`)]);
-  const result = mapMiroBoard(items, connectors);
-  return { elements: result.elements, images: result.images, skipped: result.skipped as Record<string, number>, truncated: items.length >= MAX_ITEMS };
+
+  // The board listing leaves some details out; ask for those items one by one (a bounded number, so a
+  // big board stays within the server's limits). Failures just leave the item as the listing had it.
+  let budget = MAX_EXTRA_REQUESTS;
+  const one = async <T,>(path: string): Promise<T | null> => {
+    if (budget-- <= 0) return null;
+    try { return await miro<T>(path); } catch (e) { if (e instanceof MiroError && e.status === 429) budget = 0; return null; }
+  };
+  // Embeds: the listing can miss the link and the preview picture.
+  const thinEmbeds = items.filter((i) => i.type === "embed" && !i.data?.url && !i.data?.html && !i.data?.previewUrl);
+  for (const it of thinEmbeds) {
+    const full = await one<MiroItem>(`/boards/${b}/embeds/${encodeURIComponent(it.id)}`);
+    if (full?.data) it.data = { ...it.data, ...full.data };
+  }
+  // Connector ends on items the listing didn't include: where those items are.
+  const known = new Set(items.map((i) => i.id));
+  const missing = [...new Set(connectors.flatMap((c) => [c.startItem?.id, c.endItem?.id]).filter((id): id is string => !!id && !known.has(id)))];
+  const refs: MiroItem[] = [];
+  for (const id of missing) {
+    const it = (await one<MiroItem>(`/boards/${b}/items/${encodeURIComponent(id)}`)) ?? (await one<MiroItem>(`${API.replace(/\/v2\/?$/, "/v2-experimental")}/boards/${b}/items/${encodeURIComponent(id)}`));
+    if (it?.position) refs.push(it);
+  }
+
+  const result = mapMiroBoard(items, connectors, { refs });
+  return {
+    elements: result.elements, images: result.images, skipped: result.skipped, placeholders: result.placeholders, truncated: items.length >= MAX_ITEMS,
+  };
 }
 
 /** Whether a picture link from Miro's API is one we may send the person's Miro token to. */
@@ -63,21 +92,30 @@ export function isMiroResourceUrl(raw: string) {
 /** Copies one picture from Miro into a Schema board's storage. Answers the element's new src. */
 export async function copyMiroImage(token: string, miroUrl: string, schemaBoardId: string): Promise<{ src: string; animated?: boolean }> {
   if (!isMiroResourceUrl(miroUrl)) throw new MiroError("Unexpected picture link from Miro", 400);
-  const u = new URL(miroUrl);
-  u.searchParams.set("format", "original");
-  u.searchParams.set("redirect", "false");
-  const { url } = await miroFetch(token)<{ url?: string }>(u.toString());
-  if (!url) throw new MiroError("Miro didn't give a download link");
-  // Only public https files (the local stand-in used in tests serves http).
-  const fileUrl = new URL(url);
-  if (!process.env.MIRO_API_URL) {
-    if (fileUrl.protocol !== "https:") throw new MiroError("Unexpected download link from Miro");
-    if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(fileUrl.hostname)) throw new MiroError("Unexpected download link from Miro");
+  const download = async (format: "original" | "preview") => {
+    const u = new URL(miroUrl);
+    u.searchParams.set("format", format);
+    u.searchParams.set("redirect", "false");
+    const { url } = await miroFetch(token)<{ url?: string }>(u.toString());
+    if (!url) throw new MiroError("Miro didn't give a download link");
+    // Only public https files (the local stand-in used in tests serves http).
+    const fileUrl = new URL(url);
+    if (!process.env.MIRO_API_URL) {
+      if (fileUrl.protocol !== "https:") throw new MiroError("Unexpected download link from Miro");
+      if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/.test(fileUrl.hostname)) throw new MiroError("Unexpected download link from Miro");
+    }
+    const res = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) });
+    if (!res.ok) throw new MiroError(`Miro's file storage answered ${res.status}`);
+    return { file: res, type: (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() };
+  };
+  let { file, type } = await download("original");
+  if (!IMAGE_TYPES.includes(type)) {
+    // SVG and other formats Schema doesn't show: Miro also keeps a rendered preview of every picture.
+    await file.body?.cancel().catch(() => {});
+    const original = type;
+    ({ file, type } = await download("preview"));
+    if (!IMAGE_TYPES.includes(type)) throw new MiroError(`Not a picture Schema can show (${original || "unknown type"})`, 422);
   }
-  const file = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) });
-  const type = (file.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-  if (!file.ok) throw new MiroError(`Miro's file storage answered ${file.status}`);
-  if (!IMAGE_TYPES.includes(type)) throw new MiroError(`Not a picture Schema can show (${type || "unknown type"})`, 422);
 
   const bucket = mediaBucket();
   const limit = bucket ? BUCKET_MAX_BYTES : DB_MAX_BYTES;
