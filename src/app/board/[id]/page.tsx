@@ -1,3 +1,4 @@
+import type { Viewport } from "next";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { boardAndAccess } from "@/lib/boardAccess";
@@ -5,6 +6,13 @@ import { BoardApp } from "@/components/board/BoardApp";
 import { aiEnabled } from "@/lib/ai";
 import { boardAccessForUser } from "@/lib/permissions";
 import { loadSidebar } from "@/lib/sidebar";
+
+// The board zooms itself, so keep the phone from zooming the page: otherwise iOS zooms in when a text field
+// (like the board title) gets focus and stays zoomed, cropping the top bar.
+export const viewport: Viewport = {
+  themeColor: "#0d6b5e", viewportFit: "cover",
+  width: "device-width", initialScale: 1, maximumScale: 1, userScalable: false,
+};
 
 export default async function BoardPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ share?: string }> }) {
   const { id } = await params;
