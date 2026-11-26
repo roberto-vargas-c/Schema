@@ -47,7 +47,7 @@ export function Toolbar({
   const shapeActive = tool === "rect" || tool === "ellipse" || tool === "diamond" || tool === "shape";
 
   return (
-    <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-10 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg [scrollbar-width:none] sm:bottom-[4.25rem] sm:right-auto sm:top-[4.25rem] sm:my-auto sm:h-fit sm:max-h-[calc(100%-8.5rem)] sm:flex-col sm:overflow-y-auto sm:overflow-x-hidden">
+    <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] z-10 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg [scrollbar-width:none] sm:bottom-[4.25rem] sm:right-auto sm:top-[4.25rem] sm:my-auto sm:h-fit sm:max-h-[calc(100%-8.5rem)] sm:flex-col sm:overflow-y-auto sm:overflow-x-hidden">
       {render(TOOLS)}
       {canEdit && (
         <div className="relative">

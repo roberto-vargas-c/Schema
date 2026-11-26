@@ -112,3 +112,14 @@ html.dark .doc-editor { color: #e2e8f0; }
 html.dark .doc-editor code { background: #29323e; }
 html.dark .doc-editor blockquote { border-color: #475262; color: #aeb9c7; }
 html.dark .doc-editor hr { border-color: #323c49; }
+
+/* Board page: the canvas does its own pinch-zoom and panning, so the page itself must never zoom or scroll.
+   Pinching over the top bar or toolbar, or iOS zooming in on a focused text field, used to leave the
+   page zoomed in, which cropped the top bar on the right and showed a scroll bar down the side. */
+html:has(.board-root), html:has(.board-root) body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+}
+html:has(.board-root)::-webkit-scrollbar, html:has(.board-root) body::-webkit-scrollbar { display: none; }
+.board-root { touch-action: pan-x pan-y; }

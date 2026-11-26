@@ -89,7 +89,7 @@ export function AppSidebar({ data, currentBoardId, onCollapse, onNavigate }: {
       </div>
       <div className="mt-4"><WorkspaceSwitcher current={data.workspace} all={data.workspaces} /></div>
 
-      <nav className="-mx-1 mt-3 min-h-0 flex-1 overflow-y-auto px-1 [scrollbar-width:thin]">
+      <nav className="-mx-1 mt-3 min-h-0 flex-1 overflow-y-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="space-y-0.5">
           {navLink(`/w/${wid}`, "Home", Home, onBoards && !params.get("starred") && !params.get("folder") && !params.get("team") && !params.get("q"))}
           {navLink(`/w/${wid}?starred=1`, "Starred", Star, onBoards && !!params.get("starred"))}

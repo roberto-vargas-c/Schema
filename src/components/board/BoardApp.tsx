@@ -752,6 +752,12 @@ export function BoardApp(p: BoardAppProps) {
   const [placing, setPlacing] = useState<BoardElement | null>(null);
   const [coarsePointer, setCoarsePointer] = useState(false);
   useEffect(() => { setCoarsePointer(window.matchMedia?.("(pointer: coarse)").matches ?? false); }, []);
+  // Safari on iPhone ignores user-scalable=no, so stop page pinch-zoom here (the canvas handles its own pinch first).
+  useEffect(() => {
+    const stop = (e: Event) => e.preventDefault();
+    document.addEventListener("gesturestart", stop);
+    return () => document.removeEventListener("gesturestart", stop);
+  }, []);
   const onPlace = (at: { x: number; y: number }) => {
     if (!placing) return;
     const el = placeTemplate(placing, at);
@@ -1032,7 +1038,7 @@ export function BoardApp(p: BoardAppProps) {
   }
 
   return (
-    <div className="fixed inset-0 select-none"
+    <div className="board-root fixed inset-0 select-none"
       onDragOver={(e) => { if (canEdit) e.preventDefault(); }}
       onDrop={(e) => {
         if (!canEdit) return;
@@ -1144,7 +1150,7 @@ export function BoardApp(p: BoardAppProps) {
       {p.sidebar && <SidebarDrawer data={p.sidebar} open={sidebarOpen && !presenting} onClose={closeSidebar} currentBoardId={p.boardId} />}
       {!presenting && <>
       {/* Top bar */}
-      <header className="absolute left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-30 flex items-center gap-2">
+      <header className="absolute left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-30 flex items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl sm:flex-none border border-slate-200 bg-white px-2 py-1.5 shadow-lg">
           {p.sidebar ? <SidebarToggleButton onClick={() => setSidebarOpen(true)} /> : (
             <Link href={p.workspaceId ? `/w/${p.workspaceId}` : "/w"} className="btn-ghost p-1.5" title="Back to boards">
@@ -1295,7 +1301,7 @@ export function BoardApp(p: BoardAppProps) {
         onDelete={() => { api.remove(selection); setSelection([]); }} />}
 
       {/* Zoom */}
-      <div className={`absolute bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)] left-3 z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-lg sm:bottom-3 ${archOpen || stickersOpen ? "max-sm:hidden" : ""}`}>
+      <div className={`absolute bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)] left-[max(0.75rem,env(safe-area-inset-left))] z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-lg sm:bottom-3 ${archOpen || stickersOpen ? "max-sm:hidden" : ""}`}>
         <button className="btn-ghost p-1.5" title="Zoom out" onClick={() => canvasRef.current?.zoomBy(1 / 1.2)}><Minus size={16} /></button>
         <button className="w-14 text-center text-xs tabular-nums" title="Reset to 100%" onClick={() => canvasRef.current?.zoomTo(1)}>
           {Math.round(camera.scale * 100)}%
