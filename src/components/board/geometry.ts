@@ -3,7 +3,7 @@ import type { BoardElement, ConnectorElement } from "@/lib/board/types";
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Camera = { x: number; y: number; scale: number };
 
-export const MIN_SCALE = 0.05;
+export const MIN_SCALE = 0.01;
 export const MAX_SCALE = 8;
 export const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
 
